@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Barlow', sans-serif;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center font-condensed font-bold text-sm tracking-wider uppercase px-4 py-2 rounded-md transition-all duration-150 cursor-pointer border-0;
+  }
+  .btn-primary {
+    @apply bg-navy-800 text-white hover:bg-navy-900;
+  }
+  .btn-secondary {
+    @apply bg-navy-100 text-navy-800 border border-navy-300 hover:bg-navy-200;
+  }
+  .btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-700;
+  }
+  .btn-success {
+    @apply bg-green-700 text-white hover:bg-green-800;
+  }
+  .btn-sm {
+    @apply text-xs px-3 py-1.5;
+  }
+  .card {
+    @apply bg-white rounded-xl border border-navy-200 shadow-sm overflow-hidden;
+  }
+  .page-title {
+    @apply font-condensed font-extrabold text-3xl uppercase tracking-widest text-navy-950 mb-1 pl-3 border-l-4 border-navy-800;
+  }
+  .page-subtitle {
+    @apply text-navy-400 text-xs tracking-widest mb-6 pl-4;
+  }
+  .section-title {
+    @apply font-condensed font-bold text-base uppercase tracking-wider text-navy-700 mb-3 pb-2 border-b-2 border-navy-200;
+  }
+  .table-header {
+    @apply bg-navy-800 text-white font-condensed font-bold text-xs tracking-widest uppercase;
+  }
+  .table-cell {
+    @apply px-4 py-3 border-b border-navy-100 text-sm;
+  }
+  .badge-bat {
+    @apply bg-blue-50 text-blue-700 font-condensed font-semibold text-xs px-2 py-0.5 rounded;
+  }
+  .badge-bowl {
+    @apply bg-green-50 text-green-700 font-condensed font-semibold text-xs px-2 py-0.5 rounded;
+  }
+  .badge-ar {
+    @apply bg-navy-50 text-navy-700 font-condensed font-semibold text-xs px-2 py-0.5 rounded;
+  }
+  .badge-wk {
+    @apply bg-purple-50 text-purple-700 font-condensed font-semibold text-xs px-2 py-0.5 rounded;
+  }
+  .input {
+    @apply bg-white border border-navy-300 text-navy-950 font-sans text-sm px-3 py-2 rounded-md outline-none focus:border-navy-700 transition-colors;
+  }
+  .select {
+    @apply bg-white border border-navy-300 text-navy-950 font-condensed font-semibold text-sm px-3 py-2 rounded-md outline-none focus:border-navy-700 cursor-pointer;
+  }
+}
