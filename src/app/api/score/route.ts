@@ -1,18 +1,7 @@
 // src/app/api/score/route.ts
-// Auto-score proxy — Next.js route handler
-// No timeout issues, API key stays server-side
-
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 
 export async function POST(req: NextRequest) {
-  // Verify user is authenticated
-  const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
     return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 })
@@ -44,9 +33,6 @@ export async function POST(req: NextRequest) {
         { status: response.status }
       )
     }
-
-    // Optionally save scored points to Supabase here
-    // (for now, client handles saving — we can move this server-side later)
 
     return NextResponse.json(data)
   } catch (err: any) {
