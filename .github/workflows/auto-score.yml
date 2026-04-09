@@ -1,0 +1,36 @@
+name: Auto Score IPL Matches
+
+on:
+  schedule:
+    # Run every hour from 2:30 UTC to 19:00 UTC (8am–12:30am IST)
+    # IPL matches start at 3:30pm IST (10:00 UTC) or 7:30pm IST (14:00 UTC)
+    # We check hourly so matches get scored ~1hr after they end
+    - cron: '30 * * * *'
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  auto-score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install @supabase/supabase-js node-fetch
+        working-directory: scripts
+
+      - name: Run auto-scorer
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CRICAPI_KEY: ${{ secrets.CRICAPI_KEY }}
+        run: node auto-score.js
+        working-directory: scripts
