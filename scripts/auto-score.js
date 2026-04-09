@@ -98,29 +98,33 @@ async function getMatchScorecard(matchId) {
 }
 
 async function searchMatchInSeries(homeTeam, awayTeam, dateStr) {
-  // Try series matches endpoint for IPL 2026
-  const url = `https://api.cricapi.com/v1/series_info?apikey=${CRICAPI_KEY}&id=d5a498c8-7596-4b93-8ab0-e0efc3345312`
+  // Search CricAPI matches list for IPL 2026
+  const url = `https://api.cricapi.com/v1/matches?apikey=${CRICAPI_KEY}&offset=0`
   try {
     const res = await fetch(url)
     const data = await res.json()
-    if (!data.data?.matchList) return null
+    if (!data.data) return null
 
     const teamMap = {
-      'RCB': 'Royal Challengers', 'SRH': 'Sunrisers', 'MI': 'Mumbai Indians',
-      'KKR': 'Kolkata Knight Riders', 'CSK': 'Chennai Super Kings',
-      'RR': 'Rajasthan Royals', 'DC': 'Delhi Capitals', 'GT': 'Gujarat Titans',
-      'LSG': 'Lucknow Super Giants', 'PBKS': 'Punjab Kings',
+      'RCB': 'royal challengers', 'SRH': 'sunrisers', 'MI': 'mumbai indians',
+      'KKR': 'kolkata knight riders', 'CSK': 'chennai super kings',
+      'RR': 'rajasthan royals', 'DC': 'delhi capitals', 'GT': 'gujarat titans',
+      'LSG': 'lucknow super giants', 'PBKS': 'punjab kings',
     }
 
     const matchDate = parseMatchDate(dateStr)
     const dateStr8601 = matchDate.toISOString().split('T')[0]
 
-    for (const m of data.data.matchList) {
+    for (const m of data.data) {
+      if (!(m.series || '').toLowerCase().includes('indian premier league')) continue
       const name = (m.name || '').toLowerCase()
-      const homeOk = (teamMap[homeTeam] || homeTeam).toLowerCase().split(' ').some(w => name.includes(w))
-      const awayOk = (teamMap[awayTeam] || awayTeam).toLowerCase().split(' ').some(w => name.includes(w))
+      const homeOk = (teamMap[homeTeam] || homeTeam.toLowerCase()).split(' ').some(w => w.length > 3 && name.includes(w))
+      const awayOk = (teamMap[awayTeam] || awayTeam.toLowerCase()).split(' ').some(w => w.length > 3 && name.includes(w))
       const dateOk = (m.date || '').startsWith(dateStr8601)
-      if (homeOk && awayOk && dateOk) return m.id
+      if (homeOk && awayOk) {
+        log(`  Series match found: ${m.name} (date match: ${dateOk})`)
+        return m.id
+      }
     }
   } catch (e) {
     log(`Series search error: ${e.message}`)
@@ -163,24 +167,17 @@ function formatScorecardForClaude(scorecard) {
 }
 
 async function calculatePointsWithClaude(scorecardText, matchLabel) {
-  const system = `You are a cricket fantasy scoring calculator. Respond with ONLY a valid JSON object, no markdown, no explanation.`
+  const system = `You are a cricket fantasy scoring calculator. You must respond with ONLY a valid JSON object. Do not include any text before or after the JSON. Do not use markdown. Your entire response must start with { and end with }.`
 
-  const prompt = `Calculate fantasy points for this IPL 2026 match using the scorecard below.
+  const prompt = `Calculate fantasy points for this IPL 2026 match.
 
 ${scorecardText}
 
-SCORING RULES:
-BATTING: +1/run, +1/four, +2/six, +2 per full 10 runs beyond 10 (10-19=+2, 20-29=+4...), -2 duck
-SR BOOSTER: FinalBat = BaseBat × (BatterSR/MatchSR) if ≥10 runs OR ≥5 balls
-MatchSR = (total runs both innings / total balls both innings) × 100
+BATTING: +1/run, +1/four, +2/six, +2 per full 10 runs beyond 10 (10-19=+2, 20-29=+4...), -2 duck. SR BOOSTER: FinalBat=BaseBat×(BatterSR/MatchSR) if ≥10r or ≥5b. MatchSR=(totalRuns/totalBalls)×100
+BOWLING: 1wkt=25,2=55,3=90,4=130,5=175, +3/dot,+10/maiden,-1/single. ECONOMY BOOSTER: FinalBowl=BaseBowl×(MatchER/BowlerER) if ≥1 over. MatchER=totalRuns/totalOvers
+FIELDING: +8 catch/stumping/run-out
 
-BOWLING: 1wkt=25, 2=55, 3=90, 4=130, 5=175, +3/dot, +10/maiden, -1/single conceded
-ECONOMY BOOSTER: FinalBowl = BaseBowl × (MatchER/BowlerER) if ≥1 over
-MatchER = total runs both innings / total overs both innings
-
-FIELDING: +8 catch, +8 stumping, +8 run-out
-
-Return ONLY this JSON:
+Respond with ONLY this JSON structure, nothing else:
 {"result":"TEAM1 score beat TEAM2 score","matchSR":0.0,"matchER":0.0,"players":{"Player Name":{"total":0.0,"breakdown":{"bat":{"base":0.0,"final":0.0,"sr":0.0},"bowl":{"base":0.0,"final":0.0,"er":0.0},"field":{"pts":0}}}}}`
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -191,20 +188,22 @@ Return ONLY this JSON:
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 3000,
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4000,
       system,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [
+        { role: 'user', content: prompt },
+        { role: 'assistant', content: '{' }, // prefill to force JSON
+      ],
     }),
   })
 
   const data = await res.json()
   if (data.error) throw new Error(data.error.message)
 
-  const text = data.content?.filter(c => c.type === 'text').map(c => c.text).join('') || ''
-
-  // Extract JSON
-  const clean = text.replace(/```(?:json)?/gi, '').trim()
+  // Prepend the { we used as prefill
+  const raw = '{' + (data.content?.filter(c => c.type === 'text').map(c => c.text).join('') || '')
+  const clean = raw.replace(/```(?:json)?/gi, '').trim()
   try { return JSON.parse(clean) } catch {}
   const start = clean.indexOf('{'), end = clean.lastIndexOf('}')
   if (start !== -1 && end > start) return JSON.parse(clean.slice(start, end + 1))
