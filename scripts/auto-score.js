@@ -100,12 +100,15 @@ async function getMatchScorecard(matchId) {
 async function searchMatchInSeries(homeTeam, awayTeam, dateStr) {
   const IPL_2026_ID = '87c62aac-bc3c-4738-ab93-19da0690488f'
   const url = `https://api.cricapi.com/v1/series_info?apikey=${CRICAPI_KEY}&id=${IPL_2026_ID}`
+  log(`  Trying series_info for ${homeTeam} vs ${awayTeam}...`)
   try {
     const res = await fetch(url)
     const data = await res.json()
+    log(`  series_info status: ${data.status}, hasData: ${!!data.data}, matchListLen: ${data.data?.matchList?.length ?? 'n/a'}`)
+    log(`  Raw keys: ${Object.keys(data.data || {}).join(', ')}`)
 
     if (!data.data?.matchList?.length) {
-      log(`  No matchList in series_info response`)
+      log(`  No matchList — full response: ${JSON.stringify(data).slice(0, 400)}`)
       return null
     }
 
