@@ -114,7 +114,6 @@ async function searchMatchInSeries(homeTeam, awayTeam, dateStr) {
 
     log(`  Found ${data.data.matchList.length} matches in IPL 2026 series`)
 
-    // CricAPI shortname map — RCB is stored as "RCBW" in some responses
     const shortnameMap = {
       'RCB': ['RCB', 'RCBW'],
       'SRH': ['SRH'],
@@ -128,44 +127,34 @@ async function searchMatchInSeries(homeTeam, awayTeam, dateStr) {
       'PBKS':['PBKS'],
     }
 
+    const matchDate = parseMatchDate(dateStr)
+    const dateStr8601 = matchDate.toISOString().split('T')[0]
+
     for (const m of data.data.matchList) {
       const teams = (m.teamInfo || []).map(t => (t.shortname || '').toUpperCase())
       const homeNames = shortnameMap[homeTeam] || [homeTeam]
       const awayNames = shortnameMap[awayTeam] || [awayTeam]
-      // Match regardless of order — CricAPI lists by batting first, not home/away
       const hasHome = homeNames.some(n => teams.includes(n))
       const hasAway = awayNames.some(n => teams.includes(n))
 
       if (hasHome && hasAway) {
-        const matchDate = parseMatchDate(dateStr)
-        const dateStr8601 = matchDate.toISOString().split('T')[0]
-        // Try date from dateTimeGMT field
         const mDate = (m.dateTimeGMT || m.date || '').slice(0, 10)
-        const dateOk = mDate === dateStr8601
+        log(`  Candidate: ${m.name} date=${mDate} ended=${m.matchEnded}`)
 
-        log(`  Candidate: ${m.name} date=${mDate} ended=${m.matchEnded} dateOk=${dateOk}`)
-
-        if (dateOk && m.matchEnded) {
-          log(`  ✓ Selected: ${m.name} id=${m.id}`)
+        if (m.matchEnded === true) {
+          log(`  ✓ Selected (ended=true): ${m.name} id=${m.id}`)
           return m.id
-        } else if (dateOk && !m.matchEnded) {
-          log(`  Skipping — date matches but match not ended yet`)
-        } else {
-          log(`  Skipping — date mismatch (${mDate} vs ${dateStr8601})`)
         }
       }
     }
 
-    // Log sample to debug if still not found
-    const sample = data.data.matchList[0]
-    if (sample) log(`  Sample teams: ${JSON.stringify((sample.teamInfo||[]).map(t => t.shortname))}`)
-    log(`  No match found for ${homeTeam} vs ${awayTeam}`)
+    log(`  No completed match found for ${homeTeam} vs ${awayTeam}`)
   } catch (e) {
     log(`  Series search error: ${e.message}`)
   }
   return null
 }
-
+```
 // ── Claude scoring ────────────────────────────────────────────
 
 function formatScorecardForClaude(scorecard) {
