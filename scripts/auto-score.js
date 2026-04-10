@@ -98,46 +98,52 @@ async function getMatchScorecard(matchId) {
 }
 
 async function searchMatchInSeries(homeTeam, awayTeam, dateStr) {
-  // Use currentMatches endpoint (free tier) to find IPL matches
-  const url = `https://api.cricapi.com/v1/currentMatches?apikey=${CRICAPI_KEY}&offset=0`
+  const IPL_2026_ID = '87c62aac-bc3c-4738-ab93-19da0690488f'
+  const url = `https://api.cricapi.com/v1/series_info?apikey=${CRICAPI_KEY}&id=${IPL_2026_ID}`
   try {
     const res = await fetch(url)
     const data = await res.json()
-    log(`  CricAPI currentMatches status: ${data.status}, count: ${(data.data||[]).length}`)
 
-    if (!data.data?.length) return null
-
-    const abbrevMap = {
-      'RCB': ['rcb', 'royal challengers', 'bengaluru'],
-      'SRH': ['srh', 'sunrisers', 'hyderabad'],
-      'MI':  ['mi', 'mumbai indians', 'mumbai'],
-      'KKR': ['kkr', 'kolkata knight riders', 'kolkata'],
-      'CSK': ['csk', 'chennai super kings', 'chennai'],
-      'RR':  ['rr', 'rajasthan royals', 'rajasthan'],
-      'DC':  ['dc', 'delhi capitals', 'delhi'],
-      'GT':  ['gt', 'gujarat titans', 'gujarat'],
-      'LSG': ['lsg', 'lucknow super giants', 'lucknow'],
-      'PBKS':['pbks', 'punjab kings', 'punjab'],
+    if (!data.data?.matchList?.length) {
+      log(`  No matchList in series_info response`)
+      return null
     }
 
-    // Log first match to see format
-    if (data.data[0]) log(`  Sample match: ${JSON.stringify(data.data[0]).slice(0,200)}`)
+    log(`  Found ${data.data.matchList.length} matches in IPL 2026 series`)
 
-    for (const m of data.data) {
-      const name = (m.name || '').toLowerCase()
-      if (!name.includes('ipl') && !(m.series || '').toLowerCase().includes('premier league')) continue
-      const homeTerms = abbrevMap[homeTeam] || [homeTeam.toLowerCase()]
-      const awayTerms = abbrevMap[awayTeam] || [awayTeam.toLowerCase()]
-      const homeOk = homeTerms.some(t => name.includes(t))
-      const awayOk = awayTerms.some(t => name.includes(t))
+    // CricAPI shortname map — RCB is stored as "RCBW" in some responses
+    const shortnameMap = {
+      'RCB': ['RCB', 'RCBW'],
+      'SRH': ['SRH'],
+      'MI':  ['MI'],
+      'KKR': ['KKR'],
+      'CSK': ['CSK'],
+      'RR':  ['RR'],
+      'DC':  ['DC'],
+      'GT':  ['GT'],
+      'LSG': ['LSG'],
+      'PBKS':['PBKS'],
+    }
+
+    for (const m of data.data.matchList) {
+      const teams = (m.teamInfo || []).map(t => (t.shortname || '').toUpperCase())
+      const homeNames = shortnameMap[homeTeam] || [homeTeam]
+      const awayNames = shortnameMap[awayTeam] || [awayTeam]
+      const homeOk = homeNames.some(n => teams.includes(n))
+      const awayOk = awayNames.some(n => teams.includes(n))
+
       if (homeOk && awayOk) {
-        log(`  ✓ Found: ${m.name} id=${m.id}`)
+        log(`  ✓ Found: ${m.name} id=${m.id} ended=${m.matchEnded}`)
         return m.id
       }
     }
-    log(`  No IPL match found for ${homeTeam} vs ${awayTeam} in currentMatches`)
+
+    // Log sample to debug if still not found
+    const sample = data.data.matchList[0]
+    if (sample) log(`  Sample teams: ${JSON.stringify((sample.teamInfo||[]).map(t => t.shortname))}`)
+    log(`  No match found for ${homeTeam} vs ${awayTeam}`)
   } catch (e) {
-    log(`  currentMatches error: ${e.message}`)
+    log(`  Series search error: ${e.message}`)
   }
   return null
 }
