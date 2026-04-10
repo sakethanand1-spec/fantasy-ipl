@@ -132,10 +132,11 @@ async function searchMatchInSeries(homeTeam, awayTeam, dateStr) {
       const teams = (m.teamInfo || []).map(t => (t.shortname || '').toUpperCase())
       const homeNames = shortnameMap[homeTeam] || [homeTeam]
       const awayNames = shortnameMap[awayTeam] || [awayTeam]
-      const homeOk = homeNames.some(n => teams.includes(n))
-      const awayOk = awayNames.some(n => teams.includes(n))
+      // Match regardless of order — CricAPI lists by batting first, not home/away
+      const hasHome = homeNames.some(n => teams.includes(n))
+      const hasAway = awayNames.some(n => teams.includes(n))
 
-      if (homeOk && awayOk) {
+      if (hasHome && hasAway) {
         log(`  ✓ Found: ${m.name} id=${m.id} ended=${m.matchEnded}`)
         return m.id
       }
