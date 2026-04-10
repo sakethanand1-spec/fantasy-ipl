@@ -98,62 +98,46 @@ async function getMatchScorecard(matchId) {
 }
 
 async function searchMatchInSeries(homeTeam, awayTeam, dateStr) {
-  const IPL_2026_ID = '87c62aac-bc3c-4738-ab93-19da0690488f'
-  const url = `https://api.cricapi.com/v1/series_info?apikey=${CRICAPI_KEY}&id=${IPL_2026_ID}`
+  // Use currentMatches endpoint (free tier) to find IPL matches
+  const url = `https://api.cricapi.com/v1/currentMatches?apikey=${CRICAPI_KEY}&offset=0`
   try {
     const res = await fetch(url)
     const data = await res.json()
+    log(`  CricAPI currentMatches status: ${data.status}, count: ${(data.data||[]).length}`)
 
-    // Log the raw response structure for debugging
-    if (!data.data) {
-      log(`  CricAPI series response: ${JSON.stringify(data).slice(0, 300)}`)
-      return null
-    }
+    if (!data.data?.length) return null
 
-    const matchList = data.data.matchList || data.data.matches || []
-    if (!matchList.length) {
-      log(`  CricAPI series has no matchList. Keys: ${Object.keys(data.data).join(', ')}`)
-      // Log first match as sample if any nested data exists
-      log(`  Sample data: ${JSON.stringify(data.data).slice(0, 400)}`)
-      return null
-    }
-
-    log(`  Found ${matchList.length} matches in IPL 2026 series`)
-
-    // Short abbreviation lookup
     const abbrevMap = {
       'RCB': ['rcb', 'royal challengers', 'bengaluru'],
       'SRH': ['srh', 'sunrisers', 'hyderabad'],
-      'MI': ['mi', 'mumbai indians', 'mumbai'],
+      'MI':  ['mi', 'mumbai indians', 'mumbai'],
       'KKR': ['kkr', 'kolkata knight riders', 'kolkata'],
       'CSK': ['csk', 'chennai super kings', 'chennai'],
-      'RR': ['rr', 'rajasthan royals', 'rajasthan'],
-      'DC': ['dc', 'delhi capitals', 'delhi'],
-      'GT': ['gt', 'gujarat titans', 'gujarat'],
+      'RR':  ['rr', 'rajasthan royals', 'rajasthan'],
+      'DC':  ['dc', 'delhi capitals', 'delhi'],
+      'GT':  ['gt', 'gujarat titans', 'gujarat'],
       'LSG': ['lsg', 'lucknow super giants', 'lucknow'],
-      'PBKS': ['pbks', 'punjab kings', 'punjab'],
+      'PBKS':['pbks', 'punjab kings', 'punjab'],
     }
 
-    const matchDate = parseMatchDate(dateStr)
-    const dateStr8601 = matchDate.toISOString().split('T')[0]
+    // Log first match to see format
+    if (data.data[0]) log(`  Sample match: ${JSON.stringify(data.data[0]).slice(0,200)}`)
 
-    for (const m of matchList) {
-      const name = (m.name || m.title || '').toLowerCase()
+    for (const m of data.data) {
+      const name = (m.name || '').toLowerCase()
+      if (!name.includes('ipl') && !(m.series || '').toLowerCase().includes('premier league')) continue
       const homeTerms = abbrevMap[homeTeam] || [homeTeam.toLowerCase()]
       const awayTerms = abbrevMap[awayTeam] || [awayTeam.toLowerCase()]
       const homeOk = homeTerms.some(t => name.includes(t))
       const awayOk = awayTerms.some(t => name.includes(t))
       if (homeOk && awayOk) {
-        log(`  ✓ Found CricAPI match: ${m.name || m.title} id=${m.id}`)
+        log(`  ✓ Found: ${m.name} id=${m.id}`)
         return m.id
       }
     }
-
-    // Log a few match names to see the format
-    log(`  Sample match names: ${matchList.slice(0,3).map(m => m.name || m.title || JSON.stringify(m)).join(' | ')}`)
-    log(`  No match found for ${homeTeam} vs ${awayTeam}`)
+    log(`  No IPL match found for ${homeTeam} vs ${awayTeam} in currentMatches`)
   } catch (e) {
-    log(`  Series search error: ${e.message}`)
+    log(`  currentMatches error: ${e.message}`)
   }
   return null
 }
