@@ -137,21 +137,21 @@ async function searchMatchInSeries(homeTeam, awayTeam, dateStr) {
       const hasAway = awayNames.some(n => teams.includes(n))
 
       if (hasHome && hasAway) {
-        // If date available, prefer exact date match
         const matchDate = parseMatchDate(dateStr)
         const dateStr8601 = matchDate.toISOString().split('T')[0]
-        const mDate = (m.date || m.dateTimeGMT || '').slice(0, 10)
+        // Try date from dateTimeGMT field
+        const mDate = (m.dateTimeGMT || m.date || '').slice(0, 10)
         const dateOk = mDate === dateStr8601
 
-        // Only return if date matches, OR store as candidate if no date info
-        if (dateOk) {
-          log(`  ✓ Found (date match): ${m.name} id=${m.id} ended=${m.matchEnded}`)
+        log(`  Candidate: ${m.name} date=${mDate} ended=${m.matchEnded} dateOk=${dateOk}`)
+
+        if (dateOk && m.matchEnded) {
+          log(`  ✓ Selected: ${m.name} id=${m.id}`)
           return m.id
-        } else if (!mDate) {
-          log(`  ✓ Found (no date): ${m.name} id=${m.id} ended=${m.matchEnded}`)
-          return m.id
+        } else if (dateOk && !m.matchEnded) {
+          log(`  Skipping — date matches but match not ended yet`)
         } else {
-          log(`  Skipping ${m.name} — date mismatch (${mDate} vs ${dateStr8601})`)
+          log(`  Skipping — date mismatch (${mDate} vs ${dateStr8601})`)
         }
       }
     }
