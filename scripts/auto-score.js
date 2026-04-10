@@ -98,12 +98,16 @@ async function getMatchScorecard(matchId) {
 }
 
 async function searchMatchInSeries(homeTeam, awayTeam, dateStr) {
-  // Search CricAPI matches list for IPL 2026
-  const url = `https://api.cricapi.com/v1/matches?apikey=${CRICAPI_KEY}&offset=0`
+  // IPL 2026 series ID from CricAPI
+  const IPL_2026_ID = '87c62aac-bc3c-4738-ab93-19da0690488f'
+  const url = `https://api.cricapi.com/v1/series_info?apikey=${CRICAPI_KEY}&id=${IPL_2026_ID}`
   try {
     const res = await fetch(url)
     const data = await res.json()
-    if (!data.data) return null
+    if (!data.data?.matchList) {
+      log(`  Series info returned no matchList: ${JSON.stringify(data).slice(0,200)}`)
+      return null
+    }
 
     const teamMap = {
       'RCB': 'royal challengers', 'SRH': 'sunrisers', 'MI': 'mumbai indians',
@@ -115,19 +119,23 @@ async function searchMatchInSeries(homeTeam, awayTeam, dateStr) {
     const matchDate = parseMatchDate(dateStr)
     const dateStr8601 = matchDate.toISOString().split('T')[0]
 
-    for (const m of data.data) {
-      if (!(m.series || '').toLowerCase().includes('indian premier league')) continue
+    log(`  Searching ${data.data.matchList.length} matches for ${homeTeam} vs ${awayTeam} on ${dateStr8601}`)
+
+    for (const m of data.data.matchList) {
       const name = (m.name || '').toLowerCase()
-      const homeOk = (teamMap[homeTeam] || homeTeam.toLowerCase()).split(' ').some(w => w.length > 3 && name.includes(w))
-      const awayOk = (teamMap[awayTeam] || awayTeam.toLowerCase()).split(' ').some(w => w.length > 3 && name.includes(w))
+      const homeWords = (teamMap[homeTeam] || homeTeam.toLowerCase()).split(' ').filter(w => w.length > 3)
+      const awayWords = (teamMap[awayTeam] || awayTeam.toLowerCase()).split(' ').filter(w => w.length > 3)
+      const homeOk = homeWords.some(w => name.includes(w))
+      const awayOk = awayWords.some(w => name.includes(w))
       const dateOk = (m.date || '').startsWith(dateStr8601)
       if (homeOk && awayOk) {
-        log(`  Series match found: ${m.name} (date match: ${dateOk})`)
+        log(`  Found: ${m.name} (id: ${m.id}, date match: ${dateOk})`)
         return m.id
       }
     }
+    log(`  No match found for ${homeTeam} vs ${awayTeam}`)
   } catch (e) {
-    log(`Series search error: ${e.message}`)
+    log(`  Series search error: ${e.message}`)
   }
   return null
 }
@@ -299,10 +307,10 @@ async function main() {
     log(`Processing: ${label}`)
 
     try {
-      // Try to find match in CricAPI
-      let cricMatchId = await searchCricAPIMatch(match.home_team, match.away_team, match.date)
+    // Try series search first (more reliable for completed matches)
+      let cricMatchId = await searchMatchInSeries(match.home_team, match.away_team, match.date)
       if (!cricMatchId) {
-        cricMatchId = await searchMatchInSeries(match.home_team, match.away_team, match.date)
+        cricMatchId = await searchCricAPIMatch(match.home_team, match.away_team, match.date)
       }
 
       let scorecardText = ''
