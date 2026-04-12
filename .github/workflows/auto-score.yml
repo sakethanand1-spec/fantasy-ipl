@@ -26,9 +26,13 @@ jobs:
         run: npm install @supabase/supabase-js node-fetch
         working-directory: scripts
 
+      - name: Show script version
+        run: head -5 auto-score.js
+        working-directory: scripts
+
       - name: Run auto-scorer
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CRICAPI_KEY: ${{ secrets.CRICAPI_KEY }}
