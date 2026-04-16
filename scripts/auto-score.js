@@ -197,7 +197,11 @@ async function main() {
   const toScore = matches.filter(m => isMatchLikelyFinished(m.date))
   log('Found ' + toScore.length + ' matches to score out of ' + matches.length + ' unscored')
 
-  for (const match of toScore) {
+// Process max 5 per run to avoid timeout
+  const batch = toScore.slice(0, 5)
+  log('Processing batch of ' + batch.length)
+
+  for (const match of batch) {
     const label = match.home_team + ' vs ' + match.away_team + ' (' + match.date + ')'
     log('Processing: ' + label)
 
