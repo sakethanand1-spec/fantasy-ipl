@@ -112,7 +112,7 @@ function formatScorecard(scorecard) {
 
 async function calculatePoints(scorecardText, matchLabel) {
   const system = 'You are a cricket fantasy scoring calculator. Respond with ONLY a valid JSON object. No text before or after. Start with { and end with }.'
-  const prompt = 'Calculate fantasy points for this IPL 2026 match.\n\n' + scorecardText + '\n\nBATTING: +1/run,+1/four,+2/six,+2 per full 10r beyond 10,-2 duck. SR BOOSTER: FinalBat=BaseBat*(BatterSR/MatchSR) if >=10r or >=5b. MatchSR=(totalRuns/totalBalls)*100\nBOWLING: 1wkt=25,2=55,3=90,4=130,5=175,+3/dot,+10/maiden,-1/single. ECO BOOSTER: FinalBowl=BaseBowl*(MatchER/BowlerER) if >=1 over. MatchER=totalRuns/totalOvers\nFIELDING: +8 catch/stumping/run-out\n\nReturn ONLY: {"result":"TEAM1 score beat TEAM2","matchSR":0.0,"matchER":0.0,"players":{"Player Name":{"total":0.0,"breakdown":{"bat":{"base":0.0,"final":0.0,"sr":0.0},"bowl":{"base":0.0,"final":0.0,"er":0.0},"field":{"pts":0}}}}}'
+  const prompt = 'Calculate fantasy points for this IPL 2026 match.\n\n' + scorecardText + '\n\nBATTING: +1/run,+1/four,+2/six,+2 per full 10r beyond 10,-2 duck. SR BOOSTER: FinalBat=BaseBat*(BatterSR/MatchSR) if >=10r or >=5b. MatchSR=(totalRuns/totalBalls)*100\nBOWLING: 1wkt=25, each additional wicket +20 (2=45,3=65,4=85,5=105),+3/dot,+10/maiden,-1/single. ECO BOOSTER: FinalBowl=BaseBowl*(MatchER/BowlerER) if >=1 over. MatchER=totalRuns/totalOvers\nFIELDING: +8 catch/stumping/run-out\n\nReturn ONLY: {"result":"TEAM1 score beat TEAM2","matchSR":0.0,"matchER":0.0,"players":{"Player Name":{"total":0.0,"breakdown":{"bat":{"base":0.0,"final":0.0,"sr":0.0},"bowl":{"base":0.0,"final":0.0,"er":0.0},"field":{"pts":0}}}}}'
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
