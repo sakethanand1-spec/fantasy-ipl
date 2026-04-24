@@ -117,8 +117,8 @@ async function calculatePoints(scorecardText) {
     'ECO BOOSTER: FinalBowl = BaseBowl * (MatchER / BowlerER) if >=1 over. MatchER = totalRuns/totalOvers (runs per over).\n' +
     'FIELDING: +8 catch, +8 stumping, +8 run-out.\n\n' +
     'IMPORTANT: matchSR must be stored as a RATIO (runs/balls), e.g. 1.75 not 175. matchER is runs per over, e.g. 10.5.\n\n' +
-    'Return ONLY: {"result":"TEAM1 score beat TEAM2","matchSR":0.0,"matchER":0.0,"players":{"Player Name":{"total":0.0,"breakdown":{"bat":{"base":0.0,"final":0.0,"sr":0.0},"bowl":{"base":0.0,"final":0.0,"er":0.0},"field":{"pts":0}}}}}'
-
+    'Return ONLY: {"result":"TEAM1 ActualCricketScore beat TEAM2 ActualCricketScore (e.g. RCB 203/4 beat SRH 201/9)","matchSR":0.0,...'
+ 
   var res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
