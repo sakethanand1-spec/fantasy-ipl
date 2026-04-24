@@ -60,7 +60,7 @@ BATTING: +1/run, +1/four, +2/six, +2 per full 10 runs beyond 10, -2 duck. SR BOO
 BOWLING: 1wkt=25,2=55,3=90,4=130,5=175, +3/dot,+10/maiden,-1/single. ECONOMY BOOSTER: FinalBowl=BaseBowl×(MatchER/BowlerER) if ≥1 over. MatchER=totalRuns/totalOvers
 FIELDING: +8 catch/stumping/run-out
 
-Return ONLY: {"result":"TEAM1 score beat TEAM2 score","matchSR":0.0,"matchER":0.0,"players":{"Player Name":{"total":0.0,"breakdown":{"bat":{"base":0.0,"final":0.0,"sr":0.0},"bowl":{"base":0.0,"final":0.0,"er":0.0},"field":{"pts":0}}}}}`
+Return ONLY: {"result":"TEAM1 ActualCricketScore beat TEAM2 ActualCricketScore (e.g. RCB 203/4 beat SRH 201/9)"
 
     try {
       const res = await fetch('/api/score', {
