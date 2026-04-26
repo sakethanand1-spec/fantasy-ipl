@@ -68,7 +68,7 @@ export default async function StandingsPage() {
     <div>
       <div className="page-title">Standings</div>
       <div className="page-subtitle">FANTASY IPL 2026 · SEASON LEADERBOARD</div>
-      <div className="card">
+     <div className="card overflow-x-auto">
         <table className="w-full border-collapse">
           <thead>
             <tr className="table-header">
