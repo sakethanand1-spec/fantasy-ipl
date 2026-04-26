@@ -3,11 +3,11 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-const [expandedMatch, setExpandedMatch] = useState<string | null>(null)
-const [matchPlayers, setMatchPlayers] = useState<Record<string, any[]>>({})
 const WEEKS = Array.from({ length: 14 }, (_, i) => i + 1)
 
 export default function WeeksPage() {
+  const [expandedMatch, setExpandedMatch] = useState<string | null>(null)
+  const [matchPlayers, setMatchPlayers] = useState<Record<string, any[]>>({})
   const [selectedWeek, setSelectedWeek] = useState(1)
   const [matches, setMatches] = useState<any[]>([])
   const [leaderboard, setLeaderboard] = useState<any[]>([])
