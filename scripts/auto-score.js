@@ -59,10 +59,13 @@ async function findMatchInSeries(homeTeam, awayTeam, dateStr) {
       if (hasHome && hasAway) {
         const mDate = (m.dateTimeGMT || m.date || '').slice(0, 10)
         log(`  Candidate: ${m.name} | date=${mDate} | ended=${m.matchEnded}`)
-        if (m.matchEnded === true) {
-          log(`  Selected: ${m.name} id=${m.id}`)
-          return m.id
-        }
+        const matchDateStr = m.date || ''
+const matchDate = new Date(matchDateStr)
+const isOldEnough = matchDate < new Date(Date.now() - 12 * 60 * 60 * 1000)
+if (m.matchEnded === true || isOldEnough) {
+  log('  Selected: ' + m.name + ' id=' + m.id)
+  return m.id
+}
       }
     }
 
