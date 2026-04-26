@@ -5,7 +5,7 @@ import Link from 'next/link'
 
 export const revalidate = 30
 
-const SHOW_WEEKS = [1, 2, 3, 4, 5]
+const SHOW_WEEKS = Array.from({ length: 14 }, (_, i) => i + 1)
 
 export default async function StandingsPage() {
   const league = await getLeague()
