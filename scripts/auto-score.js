@@ -53,7 +53,6 @@ async function findMatchInSeries(homeTeam, awayTeam) {
       const hasHome = homeNames.some(function(n) { return teams.includes(n) })
       const hasAway = awayNames.some(function(n) { return teams.includes(n) })
       if (hasHome && hasAway) {
-<<<<<<< HEAD
         const mDate = (m.dateTimeGMT || m.date || '').slice(0, 10)
         log(`  Candidate: ${m.name} | date=${mDate} | ended=${m.matchEnded}`)
         const matchDateStr = m.date || ''
@@ -63,13 +62,6 @@ if (m.matchEnded === true || isOldEnough) {
   log('  Selected: ' + m.name + ' id=' + m.id)
   return m.id
 }
-=======
-        log('  Candidate: ' + m.name + ' | ended=' + m.matchEnded)
-        if (m.matchEnded === true) {
-          log('  Selected: ' + m.name + ' id=' + m.id)
-          return m.id
-        }
->>>>>>> 53f05a90e5a32b3393a815728660077b0708746d
       }
     }
     log('  No completed match found for ' + homeTeam + ' vs ' + awayTeam)
