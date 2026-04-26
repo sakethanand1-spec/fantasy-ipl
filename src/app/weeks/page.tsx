@@ -147,6 +147,21 @@ Return ONLY: {"result":"TEAM1 ActualCricketScore beat TEAM2 ActualCricketScore (
     setScoring(null)
   }
 
+async function loadMatchPlayers(matchId: string) {
+  if (matchPlayers[matchId]) {
+    setExpandedMatch(expandedMatch === matchId ? null : matchId)
+    return
+  }
+  const supabase = createClient()
+  const { data } = await supabase
+    .from('player_points')
+    .select('total, bat_base, bat_final, bat_sr, bowl_base, bowl_final, bowl_er, field_pts, players(name, ipl_team, role)')
+    .eq('match_id', matchId)
+    .order('total', { ascending: false })
+  setMatchPlayers(prev => ({ ...prev, [matchId]: data || [] }))
+  setExpandedMatch(matchId)
+}
+  
   return (
     <div>
       <div className="page-title">Matchweeks</div>
