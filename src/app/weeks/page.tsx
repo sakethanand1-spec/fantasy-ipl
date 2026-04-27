@@ -66,20 +66,23 @@ export default function WeeksPage() {
 
   async function runAutoScore(match: any) {
     setScoring(match.id)
-    setScoreMsg(prev => ({ ...prev, [match.id]: 'Searching for scorecard...' }))
+    setScoreMsg(prev => ({ ...prev, [match.id]: 'Fetching scorecard...' }))
 
-    const systemPrompt = `You are a cricket fantasy scoring calculator for IPL 2026 (Indian Premier League season starting March 2026). 
-You MUST use web search to find the actual scorecard before scoring. 
-CRITICAL: Only use data from IPL 2026 matches. IPL 2026 started on 28 March 2026. Do NOT use scorecards from IPL 2025, IPL 2024, or any previous season under any circumstances.
+    const espnUrl = match.espn_url
+
+    const systemPrompt = `You are a cricket fantasy scoring calculator for IPL 2026.
+${espnUrl
+  ? `Fetch the scorecard from this exact URL: ${espnUrl} — use ONLY the data from that page.`
+  : `Search for the IPL 2026 scorecard for ${match.home_team} vs ${match.away_team} on ${match.date} 2026. Only use 2026 data.`
+}
 Respond with ONLY a valid JSON object, no markdown, no code fences, no text before or after.`
 
-    const userPrompt = `Search for and score this IPL 2026 match: ${match.home_team} vs ${match.away_team}, ${match.date} 2026, ${match.venue}.
+    const userPrompt = `${espnUrl
+      ? `Fetch and score this IPL 2026 match using the scorecard at: ${espnUrl}`
+      : `Search for and score this IPL 2026 match: ${match.home_team} vs ${match.away_team}, ${match.date} 2026, ${match.venue}. Only use IPL 2026 data.`
+    }
 
-IMPORTANT: This match was played in IPL 2026 (March-May 2026). Search specifically for "IPL 2026 ${match.home_team} vs ${match.away_team} ${match.date} 2026 scorecard". 
-If search results show a match from 2025 or earlier, IGNORE them and search again with "Indian Premier League 2026 ${match.home_team} ${match.away_team} scorecard".
-Only proceed with scoring once you have confirmed the scorecard is from 2026.
-
-Calculate fantasy points for every player who batted, bowled or fielded in this match.
+Calculate fantasy points for every player who batted, bowled or fielded.
 
 BATTING: +1/run, +1/four, +2/six, +2 per full 10 runs beyond 10 (10-19=+2, 20-29=+4 etc), -2 duck.
 SR BOOSTER: FinalBat = BaseBat × (BatterSR/MatchSR) if ≥10 runs OR ≥5 balls. BatterSR=runs/balls (ratio e.g. 1.5), MatchSR=totalRuns/totalBalls (ratio e.g. 1.75).
@@ -116,15 +119,13 @@ Return ONLY: {"result":"TEAM1 ActualScore beat TEAM2 ActualScore (e.g. RCB 203/4
       }
 
       if (!parsed?.players || !Object.keys(parsed.players).length) {
-        setScoreMsg(prev => ({ ...prev, [match.id]: 'No player data found — match may not be in training data yet.' }))
+        const preview = text.slice(0, 300)
+        setScoreMsg(prev => ({ ...prev, [match.id]: `No players parsed. Raw: ${preview}` }))
         setScoring(null)
         return
       }
 
       const supabase = createClient()
-      const { data: league } = await supabase.from('leagues').select('id').eq('slug', 'fantasy-ipl-2026').single()
-      if (!league) { setScoring(null); return }
-
       const playerNames = Object.keys(parsed.players)
       const { data: players } = await supabase.from('players').select('id, name').in('name', playerNames)
       const nameToId: Record<string, string> = {}
@@ -149,22 +150,34 @@ Return ONLY: {"result":"TEAM1 ActualScore beat TEAM2 ActualScore (e.g. RCB 203/4
         })
 
       if (rows.length) {
-        await supabase.from('player_points').upsert(rows, { onConflict: 'match_id,player_id' })
-        await supabase.from('matches').update({
-          scored: true,
-          result: parsed.result,
-          match_sr: parsed.matchSR,
-          match_er: parsed.matchER
-        }).eq('id', match.id)
+        const saveRes = await fetch('/api/save-points', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            matchId: match.id,
+            rows,
+            result: parsed.result,
+            matchSR: parsed.matchSR,
+            matchER: parsed.matchER
+          })
+        })
+        const saveData = await saveRes.json()
+        if (!saveRes.ok) {
+          setScoreMsg(prev => ({ ...prev, [match.id]: `Save error: ${saveData.error}` }))
+          setScoring(null)
+          return
+        }
+        setScoreMsg(prev => ({ ...prev, [match.id]: `✓ ${saveData.saved} players scored` }))
+      } else {
+        setScoreMsg(prev => ({ ...prev, [match.id]: 'No matching players found in squad' }))
       }
 
-      setScoreMsg(prev => ({ ...prev, [match.id]: `✓ ${rows.length} players scored` }))
-      loadWeek(selectedWeek)
       setMatchPlayers(prev => {
-  const updated = { ...prev }
-  delete updated[match.id]
-  return updated
-}}
+        const updated = { ...prev }
+        delete updated[match.id]
+        return updated
+      })
+      loadWeek(selectedWeek)
     } catch (e: any) {
       setScoreMsg(prev => ({ ...prev, [match.id]: `Error: ${e.message}` }))
     }
