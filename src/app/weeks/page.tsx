@@ -160,6 +160,11 @@ Return ONLY: {"result":"TEAM1 ActualScore beat TEAM2 ActualScore (e.g. RCB 203/4
 
       setScoreMsg(prev => ({ ...prev, [match.id]: `✓ ${rows.length} players scored` }))
       loadWeek(selectedWeek)
+      setMatchPlayers(prev => {
+  const updated = { ...prev }
+  delete updated[match.id]
+  return updated
+}}
     } catch (e: any) {
       setScoreMsg(prev => ({ ...prev, [match.id]: `Error: ${e.message}` }))
     }
