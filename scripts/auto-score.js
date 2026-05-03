@@ -55,6 +55,7 @@ async function findMatchInSeries(homeTeam, awayTeam, matchDateStr) {
     const res = await fetch(url)
     const data = await res.json()
     const matchList = data.data && data.data.matchList ? data.data.matchList : []
+    log('  First 3 matches in list: ' + JSON.stringify(matchList.slice(0, 3).map(m => ({ name: m.name, date: m.dateTimeGMT, ended: m.matchEnded }))))
     log('  Series matchList length: ' + matchList.length)
 
     // Parse our DB date to get approximate match date for comparison
@@ -115,7 +116,7 @@ async function getScorecard(cricMatchId) {
   const data = await res.json()
   return data.data || null
 }
-
+log('  Raw scorecard: ' + JSON.stringify(scorecard).slice(0, 500))
 function formatScorecard(scorecard) {
   if (!scorecard) return ''
   var text = 'Match: ' + (scorecard.name || 'IPL 2026') + '\n\n'
