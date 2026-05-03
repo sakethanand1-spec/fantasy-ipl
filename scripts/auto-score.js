@@ -120,7 +120,13 @@ function formatScorecard(scorecard) {
   if (scorecard) {
   scorecardText = formatScorecard(scorecard)
   log('  Scorecard fetched (' + scorecardText.length + ' chars)')
-  log('  Raw scorecard: ' + JSON.stringify(scorecard).slice(0, 500))
+  try {
+  log('  Raw scorecard keys: ' + Object.keys(scorecard || {}).join(', '))
+  log('  Score: ' + JSON.stringify(scorecard.score || []))
+  log('  Innings count: ' + (scorecard.scorecard || []).length)
+} catch(e) {
+  log('  Could not log scorecard: ' + e.message)
+}
   if (scorecardText.length < 300) {
     log('  Scorecard too short, using Claude memory fallback')
     scorecardText = ''
