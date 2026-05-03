@@ -116,15 +116,16 @@ async function getScorecard(cricMatchId) {
   const data = await res.json()
   return data.data || null
 }
-log('  Raw scorecard: ' + JSON.stringify(scorecard).slice(0, 500))
 function formatScorecard(scorecard) {
-  if (!scorecard) return ''
-  var text = 'Match: ' + (scorecard.name || 'IPL 2026') + '\n\n'
-  if (scorecard.score) {
-    text += 'Scores: ' + scorecard.score.map(function(s) {
-      return s.inning + ': ' + s.r + '/' + s.w + ' (' + s.o + ' ov)'
-    }).join(', ') + '\n\n'
+  if (scorecard) {
+  scorecardText = formatScorecard(scorecard)
+  log('  Scorecard fetched (' + scorecardText.length + ' chars)')
+  log('  Raw scorecard: ' + JSON.stringify(scorecard).slice(0, 500))
+  if (scorecardText.length < 300) {
+    log('  Scorecard too short, using Claude memory fallback')
+    scorecardText = ''
   }
+}
   if (scorecard.scorecard) {
     for (var i = 0; i < scorecard.scorecard.length; i++) {
       var innings = scorecard.scorecard[i]
