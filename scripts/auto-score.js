@@ -17,7 +17,6 @@ function log(msg) {
 }
 
 function parseMatchDate(dateStr) {
-  // dateStr from our DB is like "Mar 28", "Apr 1" etc
   return new Date(dateStr + ' 2026')
 }
 
@@ -53,49 +52,46 @@ async function findMatchInSeries(homeTeam, awayTeam, matchDateStr) {
   const url = 'https://api.cricapi.com/v1/series_info?apikey=' + CRICAPI_KEY + '&id=' + IPL_2026_SERIES_ID
   try {
     const res = await fetch(url)
-    const data = await res.json()
+    const text = await res.text()
+    const data = JSON.parse(text)
     const matchList = data.data && data.data.matchList ? data.data.matchList : []
-    log('  First 3 matches in list: ' + JSON.stringify(matchList.slice(0, 3).map(m => ({ name: m.name, date: m.dateTimeGMT, ended: m.matchEnded }))))
     log('  Series matchList length: ' + matchList.length)
 
-    // Parse our DB date to get approximate match date for comparison
     const expectedDate = parseMatchDate(matchDateStr)
-
     const candidates = []
 
     for (const m of matchList) {
-      // Get team names from both teamInfo and name field
-      const teamInfoNames = (m.teamInfo || []).map(t => normaliseTeam(t.shortname || t.name || ''))
-      const nameParts = (m.name || '').split(' vs ').map(p => normaliseTeam(p.split(',')[0].trim()))
-      const teams = [...new Set([...teamInfoNames, ...nameParts])].filter(Boolean)
+      const teamInfoNames = (m.teamInfo || []).map(function(t) { return normaliseTeam(t.shortname || t.name || '') })
+      const nameParts = (m.name || '').split(' vs ').map(function(p) { return normaliseTeam(p.split(',')[0].trim()) })
+      const teams = []
+      const seen = {}
+      for (const t of [...teamInfoNames, ...nameParts]) {
+        if (t && !seen[t]) { teams.push(t); seen[t] = true }
+      }
 
       const hasHome = teams.includes(normaliseTeam(homeTeam))
       const hasAway = teams.includes(normaliseTeam(awayTeam))
-
       if (!hasHome || !hasAway) continue
 
-      // Get match date from CricAPI
       const cricDate = new Date(m.dateTimeGMT || m.date || '')
-      
-      // Must be in 2026 IPL window (Mar 28 - Jun 1 2026)
+      if (isNaN(cricDate.getTime())) continue
+
       if (cricDate < IPL_2026_START || cricDate > new Date('2026-06-01')) {
-        log(`  Skipping ${m.name} — outside 2026 window (${cricDate.toDateString()})`)
+        log('  Skipping ' + m.name + ' - outside 2026 window')
         continue
       }
 
-      // Check date proximity — within 2 days of expected
       const dayDiff = Math.abs(cricDate.getTime() - expectedDate.getTime()) / (1000 * 60 * 60 * 24)
       if (dayDiff > 2) {
-        log(`  Skipping ${m.name} — date too far off (${cricDate.toDateString()} vs expected ${expectedDate.toDateString()})`)
+        log('  Skipping ' + m.name + ' - date too far off (' + cricDate.toDateString() + ' vs expected ' + expectedDate.toDateString() + ')')
         continue
       }
 
-      log(`  Candidate: ${m.name} | date=${cricDate.toDateString()} | ended=${m.matchEnded}`)
-      candidates.push({ m, cricDate, dayDiff })
+      log('  Candidate: ' + m.name + ' | date=' + cricDate.toDateString() + ' | ended=' + m.matchEnded)
+      candidates.push({ m: m, dayDiff: dayDiff })
     }
 
-    // Sort by closest date match
-    candidates.sort((a, b) => a.dayDiff - b.dayDiff)
+    candidates.sort(function(a, b) { return a.dayDiff - b.dayDiff })
 
     if (candidates.length > 0) {
       const best = candidates[0].m
@@ -112,49 +108,78 @@ async function findMatchInSeries(homeTeam, awayTeam, matchDateStr) {
 
 async function getScorecard(cricMatchId) {
   const url = 'https://api.cricapi.com/v1/match_scorecard?apikey=' + CRICAPI_KEY + '&id=' + cricMatchId
-  const res = await fetch(url)
-  const data = await res.json()
-  return data.data || null
-}
-function formatScorecard(scorecard) {
-  if (scorecard) {
-  scorecardText = formatScorecard(scorecard)
-  log('  Scorecard fetched (' + scorecardText.length + ' chars)')
   try {
-  log('  Raw scorecard keys: ' + Object.keys(scorecard || {}).join(', '))
-  log('  Score: ' + JSON.stringify(scorecard.score || []))
-  log('  Innings count: ' + (scorecard.scorecard || []).length)
-} catch(e) {
-  log('  Could not log scorecard: ' + e.message)
-}
-  if (scorecardText.length < 300) {
-    log('  Scorecard too short, using Claude memory fallback')
-    scorecardText = ''
-  }
-}
-  if (scorecard.scorecard) {
-    for (var i = 0; i < scorecard.scorecard.length; i++) {
-      var innings = scorecard.scorecard[i]
-      text += '=== ' + innings.inning + ' ===\nBATTING:\n'
-      for (var j = 0; j < (innings.batting || []).length; j++) {
-        var b = innings.batting[j]
-        if (b.r !== undefined) {
-          var bname = b.batsman && b.batsman.name ? b.batsman.name : (b.name || '')
-          text += bname + ': ' + b.r + '(' + b.b + ') ' + (b['4s'] || 0) + 'x4 ' + (b['6s'] || 0) + 'x6 - ' + (b.dismissal || 'not out') + '\n'
-        }
-      }
-      text += '\nBOWLING:\n'
-      for (var k = 0; k < (innings.bowling || []).length; k++) {
-        var bw = innings.bowling[k]
-        if (bw.o !== undefined) {
-          var bwname = bw.bowler && bw.bowler.name ? bw.bowler.name : (bw.name || '')
-          text += bwname + ': ' + bw.o + 'ov ' + bw.r + 'r ' + bw.w + 'wkt\n'
-        }
-      }
-      text += '\n'
+    const res = await fetch(url)
+    const text = await res.text()
+    if (text.length > 500000) {
+      log('  Scorecard response too large: ' + text.length + ' chars')
+      return null
     }
+    const data = JSON.parse(text)
+    return data.data || null
+  } catch (e) {
+    log('  getScorecard error: ' + e.message)
+    return null
   }
-  return text
+}
+
+function formatScorecard(scorecard) {
+  if (!scorecard) return ''
+  try {
+    var lines = []
+    lines.push('Match: ' + String(scorecard.name || 'IPL 2026'))
+
+    if (Array.isArray(scorecard.score)) {
+      var scores = scorecard.score.map(function(s) {
+        return String(s.inning || '') + ': ' + String(s.r || 0) + '/' + String(s.w || 0) + ' (' + String(s.o || 0) + ' ov)'
+      })
+      lines.push('Scores: ' + scores.join(', '))
+    }
+
+    if (Array.isArray(scorecard.scorecard)) {
+      for (var i = 0; i < scorecard.scorecard.length; i++) {
+        var innings = scorecard.scorecard[i]
+        if (!innings || typeof innings !== 'object') continue
+        lines.push('=== ' + String(innings.inning || '') + ' ===')
+        lines.push('BATTING:')
+
+        if (Array.isArray(innings.batting)) {
+          for (var j = 0; j < innings.batting.length; j++) {
+            var b = innings.batting[j]
+            if (!b || typeof b !== 'object') continue
+            var bname = ''
+            if (b.batsman && b.batsman.name) bname = b.batsman.name
+            else if (b.name) bname = b.name
+            else continue
+            if (b.r === undefined) continue
+            lines.push(String(bname) + ': ' + String(b.r || 0) + '(' + String(b.b || 0) + ') ' + String(b['4s'] || 0) + 'x4 ' + String(b['6s'] || 0) + 'x6 - ' + String(b.dismissal || 'not out'))
+          }
+        }
+
+        lines.push('BOWLING:')
+        if (Array.isArray(innings.bowling)) {
+          for (var k = 0; k < innings.bowling.length; k++) {
+            var bw = innings.bowling[k]
+            if (!bw || typeof bw !== 'object') continue
+            if (bw.o === undefined) continue
+            var bwname = ''
+            if (bw.bowler && bw.bowler.name) bwname = bw.bowler.name
+            else if (bw.name) bwname = bw.name
+            else continue
+            lines.push(String(bwname) + ': ' + String(bw.o || 0) + 'ov ' + String(bw.r || 0) + 'r ' + String(bw.w || 0) + 'wkt')
+          }
+        }
+        lines.push('')
+      }
+    }
+
+    var result = lines.join('\n')
+    log('  Scorecard formatted: ' + result.length + ' chars, ' + (scorecard.scorecard || []).length + ' innings')
+    return result
+  } catch (e) {
+    log('  formatScorecard error: ' + e.message)
+    return ''
+  }
 }
 
 async function calculatePoints(scorecardText) {
@@ -269,7 +294,6 @@ async function main() {
         var scorecard = await getScorecard(cricMatchId)
         if (scorecard) {
           scorecardText = formatScorecard(scorecard)
-          log('  Scorecard fetched (' + scorecardText.length + ' chars)')
           if (scorecardText.length < 300) {
             log('  Scorecard too short, using Claude memory fallback')
             scorecardText = ''
@@ -278,7 +302,7 @@ async function main() {
       }
 
       if (!scorecardText) {
-        log('  Using Claude memory fallback')
+        log('  Using Claude memory fallback for: ' + label)
         scorecardText = 'Match: ' + match.home_team + ' vs ' + match.away_team + ', ' + match.date + ' 2026, ' + match.venue + '. This is an IPL 2026 match. Use your knowledge of this specific 2026 match only.'
       }
 
