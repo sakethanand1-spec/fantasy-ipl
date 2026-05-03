@@ -8,6 +8,7 @@ const CRICAPI_KEY = process.env.CRICAPI_KEY
 const LEAGUE_SLUG = 'fantasy-ipl-2026'
 const IPL_2026_SERIES_ID = '87c62aac-bc3c-4738-ab93-19da0690488f'
 const BATCH_SIZE = 5
+const IPL_2026_START = new Date('2026-03-28')
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
@@ -16,6 +17,7 @@ function log(msg) {
 }
 
 function parseMatchDate(dateStr) {
+  // dateStr from our DB is like "Mar 28", "Apr 1" etc
   return new Date(dateStr + ' 2026')
 }
 
@@ -31,7 +33,23 @@ function isMatchLikelyFinished(dateStr) {
   return false
 }
 
-async function findMatchInSeries(homeTeam, awayTeam) {
+function normaliseTeam(name) {
+  if (!name) return ''
+  name = name.toUpperCase()
+  if (name.includes('ROYAL CHALLENGERS') || name === 'RCB') return 'RCB'
+  if (name.includes('SUNRISERS') || name === 'SRH') return 'SRH'
+  if (name.includes('MUMBAI') || name === 'MI') return 'MI'
+  if (name.includes('KOLKATA') || name === 'KKR') return 'KKR'
+  if (name.includes('CHENNAI') || name === 'CSK') return 'CSK'
+  if (name.includes('RAJASTHAN') || name === 'RR') return 'RR'
+  if (name.includes('DELHI') || name === 'DC') return 'DC'
+  if (name.includes('GUJARAT') || name === 'GT') return 'GT'
+  if (name.includes('LUCKNOW') || name === 'LSG') return 'LSG'
+  if (name.includes('PUNJAB') || name === 'PBKS') return 'PBKS'
+  return name
+}
+
+async function findMatchInSeries(homeTeam, awayTeam, matchDateStr) {
   const url = 'https://api.cricapi.com/v1/series_info?apikey=' + CRICAPI_KEY + '&id=' + IPL_2026_SERIES_ID
   try {
     const res = await fetch(url)
@@ -39,32 +57,52 @@ async function findMatchInSeries(homeTeam, awayTeam) {
     const matchList = data.data && data.data.matchList ? data.data.matchList : []
     log('  Series matchList length: ' + matchList.length)
 
-    const shortnameMap = {
-      'RCB': ['RCB'], 'SRH': ['SRH'], 'MI': ['MI'], 'KKR': ['KKR'],
-      'CSK': ['CSK'], 'RR': ['RR'], 'DC': ['DC'], 'GT': ['GT'],
-      'LSG': ['LSG'], 'PBKS': ['PBKS'],
-    }
+    // Parse our DB date to get approximate match date for comparison
+    const expectedDate = parseMatchDate(matchDateStr)
 
-    const homeNames = shortnameMap[homeTeam] || [homeTeam]
-    const awayNames = shortnameMap[awayTeam] || [awayTeam]
+    const candidates = []
 
     for (const m of matchList) {
-      const teams = (m.teamInfo || []).map(function(t) { return (t.shortname || '').toUpperCase() })
-      const hasHome = homeNames.some(function(n) { return teams.includes(n) })
-      const hasAway = awayNames.some(function(n) { return teams.includes(n) })
-      if (hasHome && hasAway) {
-        const mDate = (m.dateTimeGMT || m.date || '').slice(0, 10)
-        log(`  Candidate: ${m.name} | date=${mDate} | ended=${m.matchEnded}`)
-        const matchDateStr = m.date || ''
-const matchDate = new Date(matchDateStr)
-const isOldEnough = matchDate < new Date(Date.now() - 12 * 60 * 60 * 1000)
-if (m.matchEnded === true || isOldEnough) {
-  log('  Selected: ' + m.name + ' id=' + m.id)
-  return m.id
-}
+      // Get team names from both teamInfo and name field
+      const teamInfoNames = (m.teamInfo || []).map(t => normaliseTeam(t.shortname || t.name || ''))
+      const nameParts = (m.name || '').split(' vs ').map(p => normaliseTeam(p.split(',')[0].trim()))
+      const teams = [...new Set([...teamInfoNames, ...nameParts])].filter(Boolean)
+
+      const hasHome = teams.includes(normaliseTeam(homeTeam))
+      const hasAway = teams.includes(normaliseTeam(awayTeam))
+
+      if (!hasHome || !hasAway) continue
+
+      // Get match date from CricAPI
+      const cricDate = new Date(m.dateTimeGMT || m.date || '')
+      
+      // Must be in 2026 IPL window (Mar 28 - Jun 1 2026)
+      if (cricDate < IPL_2026_START || cricDate > new Date('2026-06-01')) {
+        log(`  Skipping ${m.name} — outside 2026 window (${cricDate.toDateString()})`)
+        continue
       }
+
+      // Check date proximity — within 2 days of expected
+      const dayDiff = Math.abs(cricDate.getTime() - expectedDate.getTime()) / (1000 * 60 * 60 * 24)
+      if (dayDiff > 2) {
+        log(`  Skipping ${m.name} — date too far off (${cricDate.toDateString()} vs expected ${expectedDate.toDateString()})`)
+        continue
+      }
+
+      log(`  Candidate: ${m.name} | date=${cricDate.toDateString()} | ended=${m.matchEnded}`)
+      candidates.push({ m, cricDate, dayDiff })
     }
-    log('  No completed match found for ' + homeTeam + ' vs ' + awayTeam)
+
+    // Sort by closest date match
+    candidates.sort((a, b) => a.dayDiff - b.dayDiff)
+
+    if (candidates.length > 0) {
+      const best = candidates[0].m
+      log('  Selected: ' + best.name + ' id=' + best.id)
+      return best.id
+    }
+
+    log('  No matching 2026 match found for ' + homeTeam + ' vs ' + awayTeam)
   } catch (e) {
     log('  Series search error: ' + e.message)
   }
@@ -117,12 +155,12 @@ async function calculatePoints(scorecardText) {
   var prompt = 'Calculate fantasy points for this IPL 2026 match.\n\n' + scorecardText + '\n\n' +
     'BATTING: +1/run, +1/four, +2/six, +2 per full 10 runs beyond 10 (so 10-19=+2, 20-29=+4 etc), -2 duck.\n' +
     'SR BOOSTER: FinalBat = BaseBat * (BatterSR / MatchSR) if >=10r or >=5b. Where BatterSR = runs/balls (ratio, e.g. 1.5 not 150) and MatchSR = totalRuns/totalBalls (ratio, e.g. 1.75 not 175).\n' +
-    'BOWLING: 1wkt=25, each additional wicket adds 20 (so 2=45, 3=65, 4=85, 5=105). +3/dot, +10/maiden, -1/single conceded.\n' +
+    'BOWLING: 1wkt=25, each additional wicket adds 20 (so 2=45, 3=65, 4=85, 5=105). +3/dot, +10/maiden, -1/run conceded.\n' +
     'ECO BOOSTER: FinalBowl = BaseBowl * (MatchER / BowlerER) if >=1 over. MatchER = totalRuns/totalOvers (runs per over).\n' +
     'FIELDING: +8 catch, +8 stumping, +8 run-out.\n\n' +
     'IMPORTANT: matchSR must be stored as a RATIO (runs/balls), e.g. 1.75 not 175. matchER is runs per over, e.g. 10.5.\n\n' +
-    'Return ONLY: {"result":"TEAM1 ActualCricketScore beat TEAM2 ActualCricketScore (e.g. RCB 203/4 beat SRH 201/9)","matchSR":0.0,...'
- 
+    'Return ONLY: {"result":"TEAM1 ActualCricketScore beat TEAM2 ActualCricketScore (e.g. RCB 203/4 beat SRH 201/9)","matchSR":0.0,"matchER":0.0,"players":{"Player Name":{"total":0.0,"breakdown":{"bat":{"base":0.0,"final":0.0,"sr":0.0},"bowl":{"base":0.0,"final":0.0,"er":0.0},"field":{"pts":0}}}}}'
+
   var res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -132,7 +170,7 @@ async function calculatePoints(scorecardText) {
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
+      max_tokens: 6000,
       system: system,
       messages: [
         { role: 'user', content: prompt },
@@ -215,7 +253,7 @@ async function main() {
     log('Processing: ' + label)
 
     try {
-      var cricMatchId = await findMatchInSeries(match.home_team, match.away_team)
+      var cricMatchId = await findMatchInSeries(match.home_team, match.away_team, match.date)
       var scorecardText = ''
 
       if (cricMatchId) {
@@ -224,12 +262,16 @@ async function main() {
         if (scorecard) {
           scorecardText = formatScorecard(scorecard)
           log('  Scorecard fetched (' + scorecardText.length + ' chars)')
+          if (scorecardText.length < 300) {
+            log('  Scorecard too short, using Claude memory fallback')
+            scorecardText = ''
+          }
         }
       }
 
       if (!scorecardText) {
         log('  Using Claude memory fallback')
-        scorecardText = 'Match: ' + match.home_team + ' vs ' + match.away_team + ', ' + match.date + ', ' + match.venue + '. Use your knowledge of this IPL 2026 match.'
+        scorecardText = 'Match: ' + match.home_team + ' vs ' + match.away_team + ', ' + match.date + ' 2026, ' + match.venue + '. This is an IPL 2026 match. Use your knowledge of this specific 2026 match only.'
       }
 
       var parsed = await calculatePoints(scorecardText)
