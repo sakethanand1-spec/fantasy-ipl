@@ -9,6 +9,7 @@ const NAV_LINKS = [
   { href: '/standings', label: 'Standings' },
   { href: '/weeks',     label: 'Weeks' },
   { href: '/teams',     label: 'Teams' },
+  { href: '/players',   label: 'Players' },
   { href: '/transfers', label: 'Transfers' },
   { href: '/waivers',   label: 'Waivers' },
   { href: '/rules',     label: 'Rules' },

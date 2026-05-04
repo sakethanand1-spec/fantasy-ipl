@@ -83,8 +83,8 @@ Calculate fantasy points for every player who batted, bowled or fielded in this 
 
 BATTING: +1/run, +1/four, +2/six, +2 per full 10 runs beyond 10 (10-19=+2, 20-29=+4 etc), -2 duck.
 SR BOOSTER: FinalBat = BaseBat × (BatterSR/MatchSR) if ≥10 runs OR ≥5 balls. BatterSR=runs/balls (ratio e.g. 1.5), MatchSR=totalRuns/totalBalls (ratio e.g. 1.75).
-BOWLING: 1wkt=25, each extra wkt adds 20 (2=45,3=65,4=85,5=105). +3/dot, +10/maiden, -1/run conceded.
-ECONOMY BOOSTER: FinalBowl = BaseBowl × (MatchER/BowlerER) if ≥1 over. MatchER=totalRuns/totalOvers.
+BOWLING BASE (always ≥0): n wkts = (n×25)+(n-1)×5 so 1=25,2=55,3=85,4=115,5=145. +3/dot ball, +10/maiden, +1/single conceded. bowl.base must be ≥0.
+ECONOMY BOOSTER: FinalBowl = BaseBowl × (MatchER/BowlerER) if ≥1 over. MatchER=totalRuns/totalOvers. bowl.final must be ≥0.
 FIELDING: +8 catch, +8 stumping, +8 run-out.
 
 IMPORTANT: matchSR must be a ratio (runs/balls) e.g. 1.75 not 175. matchER is runs per over e.g. 9.5.
@@ -134,15 +134,19 @@ Return ONLY: {"result":"TEAM1 ActualScore beat TEAM2 ActualScore (e.g. RCB 203/4
         .filter(name => nameToId[name])
         .map(name => {
           const pp = parsed.players[name]
+          const bowlBase = pp.breakdown?.bowl?.base != null ? Math.max(0, pp.breakdown.bowl.base) : null
+          const bowlFinal = pp.breakdown?.bowl?.final != null ? Math.max(0, pp.breakdown.bowl.final) : null
+          const batFinal = pp.breakdown?.bat?.final ?? 0
+          const fieldPts = pp.breakdown?.field?.pts ?? 0
           return {
             match_id: match.id,
             player_id: nameToId[name],
-            total: pp.total || 0,
+            total: batFinal + (bowlFinal ?? 0) + fieldPts,
             bat_base: pp.breakdown?.bat?.base ?? null,
             bat_final: pp.breakdown?.bat?.final ?? null,
             bat_sr: pp.breakdown?.bat?.sr ?? null,
-            bowl_base: pp.breakdown?.bowl?.base ?? null,
-            bowl_final: pp.breakdown?.bowl?.final ?? null,
+            bowl_base: bowlBase,
+            bowl_final: bowlFinal,
             bowl_er: pp.breakdown?.bowl?.er ?? null,
             field_pts: pp.breakdown?.field?.pts ?? null,
           }
@@ -159,6 +163,8 @@ Return ONLY: {"result":"TEAM1 ActualScore beat TEAM2 ActualScore (e.g. RCB 203/4
       }
 
       setScoreMsg(prev => ({ ...prev, [match.id]: `✓ ${rows.length} players scored` }))
+      setMatchPlayers(prev => { const next = { ...prev }; delete next[match.id]; return next })
+      setExpandedMatch(null)
       loadWeek(selectedWeek)
     } catch (e: any) {
       setScoreMsg(prev => ({ ...prev, [match.id]: `Error: ${e.message}` }))

@@ -188,7 +188,7 @@ async function calculatePoints(scorecardText) {
   var prompt = 'Calculate fantasy points for this IPL 2026 match.\n\n' + scorecardText + '\n\n' +
     'BATTING: +1/run, +1/four, +2/six, +2 per full 10 runs beyond 10 (so 10-19=+2, 20-29=+4 etc), -2 duck.\n' +
     'SR BOOSTER: FinalBat = BaseBat * (BatterSR / MatchSR) if >=10r or >=5b. Where BatterSR = runs/balls (ratio, e.g. 1.5 not 150) and MatchSR = totalRuns/totalBalls (ratio, e.g. 1.75 not 175).\n' +
-    'BOWLING: 1wkt=25, each additional wicket adds 20 (so 2=45, 3=65, 4=85, 5=105). +3/dot, +10/maiden, -1/run conceded.\n' +
+    'BOWLING: n wickets = (n*25)+(n-1)*5 so 1=25,2=55,3=85,4=115,5=145. +3/dot, +10/maiden, +1/single conceded. No negative bowling scoring.\n' +
     'ECO BOOSTER: FinalBowl = BaseBowl * (MatchER / BowlerER) if >=1 over. MatchER = totalRuns/totalOvers (runs per over).\n' +
     'FIELDING: +8 catch, +8 stumping, +8 run-out.\n\n' +
     'IMPORTANT: matchSR must be stored as a RATIO (runs/balls), e.g. 1.75 not 175. matchER is runs per over, e.g. 10.5.\n\n' +
@@ -236,15 +236,19 @@ async function savePoints(matchId, parsed) {
 
   var rows = playerNames.filter(function(name) { return nameToId[name] }).map(function(name) {
     var pp = parsed.players[name]
+    var bowlBase = pp.breakdown && pp.breakdown.bowl && pp.breakdown.bowl.base != null ? Math.max(0, pp.breakdown.bowl.base) : null
+    var bowlFinal = pp.breakdown && pp.breakdown.bowl && pp.breakdown.bowl.final != null ? Math.max(0, pp.breakdown.bowl.final) : null
+    var batFinal = pp.breakdown && pp.breakdown.bat ? (pp.breakdown.bat.final || 0) : 0
+    var fieldPts = pp.breakdown && pp.breakdown.field ? (pp.breakdown.field.pts || 0) : 0
     return {
       match_id: matchId,
       player_id: nameToId[name],
-      total: pp.total || 0,
+      total: batFinal + (bowlFinal || 0) + fieldPts,
       bat_base: pp.breakdown && pp.breakdown.bat ? pp.breakdown.bat.base : null,
       bat_final: pp.breakdown && pp.breakdown.bat ? pp.breakdown.bat.final : null,
       bat_sr: pp.breakdown && pp.breakdown.bat ? pp.breakdown.bat.sr : null,
-      bowl_base: pp.breakdown && pp.breakdown.bowl ? pp.breakdown.bowl.base : null,
-      bowl_final: pp.breakdown && pp.breakdown.bowl ? pp.breakdown.bowl.final : null,
+      bowl_base: bowlBase,
+      bowl_final: bowlFinal,
       bowl_er: pp.breakdown && pp.breakdown.bowl ? pp.breakdown.bowl.er : null,
       field_pts: pp.breakdown && pp.breakdown.field ? pp.breakdown.field.pts : null,
     }
