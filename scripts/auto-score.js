@@ -24,12 +24,9 @@ function isMatchLikelyFinished(dateStr) {
   const now = new Date()
   const nowIST = new Date(now.getTime() + 5.5 * 60 * 60 * 1000)
   const matchDate = parseMatchDate(dateStr)
-  const matchDateIST = new Date(matchDate.getTime() + 5.5 * 60 * 60 * 1000)
-  const matchDay = matchDateIST.toDateString()
-  const today = nowIST.toDateString()
-  if (matchDate < new Date(nowIST.getTime() - 24 * 60 * 60 * 1000)) return true
-  if (matchDay === today) return nowIST.getHours() >= 23
-  return false
+  // Any match whose date is in the past (IST) by more than 4 hours is considered done
+  const hoursSinceMatchDay = (nowIST.getTime() - matchDate.getTime()) / (1000 * 60 * 60)
+  return hoursSinceMatchDay > 4
 }
 
 function normaliseTeam(name) {
@@ -166,7 +163,13 @@ function formatScorecard(scorecard) {
             if (bw.bowler && bw.bowler.name) bwname = bw.bowler.name
             else if (bw.name) bwname = bw.name
             else continue
-            lines.push(String(bwname) + ': ' + String(bw.o || 0) + 'ov ' + String(bw.r || 0) + 'r ' + String(bw.w || 0) + 'wkt')
+            var bowlLine = String(bwname) + ': ' + String(bw.o || 0) + 'ov ' + String(bw.r || 0) + 'r ' + String(bw.w || 0) + 'wkt'
+            if (bw.m != null) bowlLine += ' ' + String(bw.m) + 'maiden'
+            if (bw.wd != null) bowlLine += ' ' + String(bw.wd) + 'wd'
+            if (bw.nb != null) bowlLine += ' ' + String(bw.nb) + 'nb'
+            if (bw['0s'] != null) bowlLine += ' ' + String(bw['0s']) + 'dots'
+            else if (bw.dots != null) bowlLine += ' ' + String(bw.dots) + 'dots'
+            lines.push(bowlLine)
           }
         }
         lines.push('')
@@ -203,7 +206,7 @@ async function calculatePoints(scorecardText) {
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 6000,
+      max_tokens: 8000,
       system: system,
       messages: [
         { role: 'user', content: prompt },
