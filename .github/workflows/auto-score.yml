@@ -23,7 +23,7 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies
-        run: npm install @supabase/supabase-js node-fetch
+        run: npm install
         working-directory: scripts
 
       - name: Show script version
