@@ -10,7 +10,9 @@ const IPL_2026_SERIES_ID = '87c62aac-bc3c-4738-ab93-19da0690488f'
 const BATCH_SIZE = 5
 const IPL_2026_START = new Date('2026-03-28')
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+  realtime: { params: { eventsPerSecond: -1 } },
+})
 
 function log(msg) {
   console.log('[' + new Date().toISOString() + '] ' + msg)
