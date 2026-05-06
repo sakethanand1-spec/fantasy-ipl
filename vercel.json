@@ -1,10 +1,19 @@
 {
+  "crons": [
+    {
+      "path": "/api/cron/score",
+      "schedule": "30 * * * *"
+    }
+  ],
   "functions": {
     "src/app/api/score/route.ts": {
       "maxDuration": 120
     },
     "src/app/api/save-points/route.ts": {
       "maxDuration": 30
+    },
+    "src/app/api/cron/score/route.ts": {
+      "maxDuration": 300
     }
   }
 }

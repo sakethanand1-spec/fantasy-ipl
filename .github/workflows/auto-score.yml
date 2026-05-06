@@ -1,12 +1,7 @@
 name: Auto Score IPL Matches
 
 on:
-  schedule:
-    # Run every hour from 2:30 UTC to 19:00 UTC (8am–12:30am IST)
-    # IPL matches start at 3:30pm IST (10:00 UTC) or 7:30pm IST (14:00 UTC)
-    # We check hourly so matches get scored ~1hr after they end
-    - cron: '30 * * * *'
-  workflow_dispatch: # Allow manual trigger from GitHub UI
+  workflow_dispatch: # Manual trigger only — auto-scoring now handled by Vercel cron (/api/cron/score)
 
 jobs:
   auto-score:
