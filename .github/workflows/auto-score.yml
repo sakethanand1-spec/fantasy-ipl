@@ -16,11 +16,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          clean: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - name: Clean stale node_modules
+        run: rm -rf node_modules
+        working-directory: scripts
+
+      - name: Verify script and node version
+        run: |
+          node --version
+          head -5 auto-score.js
+        working-directory: scripts
 
       - name: Run auto-scorer
         env:
