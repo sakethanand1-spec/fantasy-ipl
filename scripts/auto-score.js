@@ -1,7 +1,4 @@
 // scripts/auto-score.js
-import { createClient } from '@supabase/supabase-js'
-import ws from 'ws'
-
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
@@ -11,9 +8,36 @@ const IPL_2026_SERIES_ID = '87c62aac-bc3c-4738-ab93-19da0690488f'
 const BATCH_SIZE = 5
 const IPL_2026_START = new Date('2026-03-28')
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-  realtime: { transport: ws, params: { eventsPerSecond: -1 } },
-})
+// --- Direct PostgREST helpers (no Supabase client, no WebSocket) ---
+
+const DB = SUPABASE_URL + '/rest/v1'
+const AUTH = { apikey: SUPABASE_SERVICE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_KEY }
+
+async function dbGet(path) {
+  const res = await fetch(DB + path, { headers: AUTH })
+  if (!res.ok) throw new Error('DB GET ' + path + ' failed: ' + await res.text())
+  return res.json()
+}
+
+async function dbPost(path, body, prefer) {
+  const res = await fetch(DB + path, {
+    method: 'POST',
+    headers: { ...AUTH, 'Content-Type': 'application/json', Prefer: prefer || 'return=minimal' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error('DB POST ' + path + ' failed: ' + await res.text())
+}
+
+async function dbPatch(path, body) {
+  const res = await fetch(DB + path, {
+    method: 'PATCH',
+    headers: { ...AUTH, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error('DB PATCH ' + path + ' failed: ' + await res.text())
+}
+
+// --- Utilities ---
 
 function log(msg) {
   console.log('[' + new Date().toISOString() + '] ' + msg)
@@ -27,7 +51,6 @@ function isMatchLikelyFinished(dateStr) {
   const now = new Date()
   const nowIST = new Date(now.getTime() + 5.5 * 60 * 60 * 1000)
   const matchDate = parseMatchDate(dateStr)
-  // Any match whose date is in the past (IST) by more than 4 hours is considered done
   const hoursSinceMatchDay = (nowIST.getTime() - matchDate.getTime()) / (1000 * 60 * 60)
   return hoursSinceMatchDay > 4
 }
@@ -48,12 +71,13 @@ function normaliseTeam(name) {
   return name
 }
 
+// --- CricAPI ---
+
 async function findMatchInSeries(homeTeam, awayTeam, matchDateStr) {
   const url = 'https://api.cricapi.com/v1/series_info?apikey=' + CRICAPI_KEY + '&id=' + IPL_2026_SERIES_ID
   try {
     const res = await fetch(url)
-    const text = await res.text()
-    const data = JSON.parse(text)
+    const data = await res.json()
     const matchList = data.data && data.data.matchList ? data.data.matchList : []
     log('  Series matchList length: ' + matchList.length)
 
@@ -75,7 +99,6 @@ async function findMatchInSeries(homeTeam, awayTeam, matchDateStr) {
 
       const cricDate = new Date(m.dateTimeGMT || m.date || '')
       if (isNaN(cricDate.getTime())) continue
-
       if (cricDate < IPL_2026_START || cricDate > new Date('2026-06-01')) {
         log('  Skipping ' + m.name + ' - outside 2026 window')
         continue
@@ -83,7 +106,7 @@ async function findMatchInSeries(homeTeam, awayTeam, matchDateStr) {
 
       const dayDiff = Math.abs(cricDate.getTime() - expectedDate.getTime()) / (1000 * 60 * 60 * 24)
       if (dayDiff > 2) {
-        log('  Skipping ' + m.name + ' - date too far off (' + cricDate.toDateString() + ' vs expected ' + expectedDate.toDateString() + ')')
+        log('  Skipping ' + m.name + ' - date too far off')
         continue
       }
 
@@ -92,13 +115,11 @@ async function findMatchInSeries(homeTeam, awayTeam, matchDateStr) {
     }
 
     candidates.sort(function(a, b) { return a.dayDiff - b.dayDiff })
-
     if (candidates.length > 0) {
       const best = candidates[0].m
       log('  Selected: ' + best.name + ' id=' + best.id)
       return best.id
     }
-
     log('  No matching 2026 match found for ' + homeTeam + ' vs ' + awayTeam)
   } catch (e) {
     log('  Series search error: ' + e.message)
@@ -111,10 +132,7 @@ async function getScorecard(cricMatchId) {
   try {
     const res = await fetch(url)
     const text = await res.text()
-    if (text.length > 500000) {
-      log('  Scorecard response too large: ' + text.length + ' chars')
-      return null
-    }
+    if (text.length > 500000) { log('  Scorecard response too large'); return null }
     const data = JSON.parse(text)
     return data.data || null
   } catch (e) {
@@ -147,11 +165,8 @@ function formatScorecard(scorecard) {
           for (var j = 0; j < innings.batting.length; j++) {
             var b = innings.batting[j]
             if (!b || typeof b !== 'object') continue
-            var bname = ''
-            if (b.batsman && b.batsman.name) bname = b.batsman.name
-            else if (b.name) bname = b.name
-            else continue
-            if (b.r === undefined) continue
+            var bname = b.batsman && b.batsman.name ? b.batsman.name : (b.name || '')
+            if (!bname || b.r === undefined) continue
             lines.push(String(bname) + ': ' + String(b.r || 0) + '(' + String(b.b || 0) + ') ' + String(b['4s'] || 0) + 'x4 ' + String(b['6s'] || 0) + 'x6 - ' + String(b.dismissal || 'not out'))
           }
         }
@@ -160,12 +175,9 @@ function formatScorecard(scorecard) {
         if (Array.isArray(innings.bowling)) {
           for (var k = 0; k < innings.bowling.length; k++) {
             var bw = innings.bowling[k]
-            if (!bw || typeof bw !== 'object') continue
-            if (bw.o === undefined) continue
-            var bwname = ''
-            if (bw.bowler && bw.bowler.name) bwname = bw.bowler.name
-            else if (bw.name) bwname = bw.name
-            else continue
+            if (!bw || typeof bw !== 'object' || bw.o === undefined) continue
+            var bwname = bw.bowler && bw.bowler.name ? bw.bowler.name : (bw.name || '')
+            if (!bwname) continue
             var bowlLine = String(bwname) + ': ' + String(bw.o || 0) + 'ov ' + String(bw.r || 0) + 'r ' + String(bw.w || 0) + 'wkt'
             if (bw.m != null) bowlLine += ' ' + String(bw.m) + 'maiden'
             if (bw.wd != null) bowlLine += ' ' + String(bw.wd) + 'wd'
@@ -180,7 +192,7 @@ function formatScorecard(scorecard) {
     }
 
     var result = lines.join('\n')
-    log('  Scorecard formatted: ' + result.length + ' chars, ' + (scorecard.scorecard || []).length + ' innings')
+    log('  Scorecard formatted: ' + result.length + ' chars')
     return result
   } catch (e) {
     log('  formatScorecard error: ' + e.message)
@@ -188,14 +200,15 @@ function formatScorecard(scorecard) {
   }
 }
 
+// --- Claude scoring ---
+
 async function calculatePoints(scorecardText) {
   var system = 'You are a cricket fantasy scoring calculator. Respond with ONLY a valid JSON object. No text before or after. Start with { and end with }.'
-
   var prompt = 'Calculate fantasy points for this IPL 2026 match.\n\n' + scorecardText + '\n\n' +
     'BATTING: +1/run, +1/four, +2/six, +2 per full 10 runs beyond 10 (so 10-19=+2, 20-29=+4 etc), -2 duck.\n' +
     'SR BOOSTER: FinalBat = BaseBat * (BatterSR / MatchSR) if >=10r or >=5b. Where BatterSR = runs/balls (ratio, e.g. 1.5 not 150) and MatchSR = totalRuns/totalBalls (ratio, e.g. 1.75 not 175).\n' +
-    'BOWLING: n wickets = (n*25)+(n-1)*5 so 1=25,2=55,3=85,4=115,5=145. +3/dot, +10/maiden, +1/single conceded. No negative bowling scoring.\n' +
-    'ECO BOOSTER: FinalBowl = BaseBowl * (MatchER / BowlerER) if >=1 over. MatchER = totalRuns/totalOvers (runs per over).\n' +
+    'BOWLING BASE (always >=0): n wickets = (n*25)+(n-1)*5 so 1=25,2=55,3=85,4=115,5=145. +3/dot ball, +10/maiden, +1/single conceded. bowl.base must be >=0.\n' +
+    'ECO BOOSTER: FinalBowl = BaseBowl * (MatchER / BowlerER) if >=1 over. MatchER = totalRuns/totalOvers (runs per over). bowl.final must be >=0.\n' +
     'FIELDING: +8 catch, +8 stumping, +8 run-out.\n\n' +
     'IMPORTANT: matchSR must be stored as a RATIO (runs/balls), e.g. 1.75 not 175. matchER is runs per over, e.g. 10.5.\n\n' +
     'Return ONLY: {"result":"TEAM1 ActualCricketScore beat TEAM2 ActualCricketScore (e.g. RCB 203/4 beat SRH 201/9)","matchSR":0.0,"matchER":0.0,"players":{"Player Name":{"total":0.0,"breakdown":{"bat":{"base":0.0,"final":0.0,"sr":0.0},"bowl":{"base":0.0,"final":0.0,"er":0.0},"field":{"pts":0}}}}}'
@@ -229,6 +242,8 @@ async function calculatePoints(scorecardText) {
   throw new Error('Could not parse Claude response as JSON')
 }
 
+// --- Save to DB ---
+
 async function savePoints(matchId, parsed) {
   if (!parsed || !parsed.players || !Object.keys(parsed.players).length) {
     log('No players in response for match ' + matchId)
@@ -236,9 +251,11 @@ async function savePoints(matchId, parsed) {
   }
 
   var playerNames = Object.keys(parsed.players)
-  var playersRes = await supabase.from('players').select('id, name').in('name', playerNames)
+  var nameFilter = '(' + playerNames.map(function(n) { return '"' + n.replace(/"/g, '\\"') + '"' }).join(',') + ')'
+  var players = await dbGet('/players?name=in.' + encodeURIComponent(nameFilter) + '&select=id,name')
+
   var nameToId = {}
-  for (var p of (playersRes.data || [])) nameToId[p.name] = p.id
+  for (var p of players) nameToId[p.name] = p.id
 
   var rows = playerNames.filter(function(name) { return nameToId[name] }).map(function(name) {
     var pp = parsed.players[name]
@@ -261,29 +278,27 @@ async function savePoints(matchId, parsed) {
   })
 
   if (rows.length) {
-    var upsertRes = await supabase.from('player_points').upsert(rows, { onConflict: 'match_id,player_id' })
-    if (upsertRes.error) throw new Error('Supabase error: ' + upsertRes.error.message)
-    await supabase.from('matches').update({
+    await dbPost('/player_points', rows, 'resolution=merge-duplicates,return=minimal')
+    await dbPatch('/matches?id=eq.' + matchId, {
       scored: true,
       result: parsed.result || 'Scored',
       match_sr: parsed.matchSR,
       match_er: parsed.matchER,
-    }).eq('id', matchId)
+    })
   }
   return rows.length
 }
 
+// --- Main ---
+
 async function main() {
   log('Auto-scorer starting...')
 
-  var leagueRes = await supabase.from('leagues').select('id').eq('slug', LEAGUE_SLUG).single()
-  if (!leagueRes.data) { log('League not found'); process.exit(1) }
-  var league = leagueRes.data
+  var leagues = await dbGet('/leagues?slug=eq.' + LEAGUE_SLUG + '&select=id')
+  if (!leagues.length) { log('League not found'); process.exit(1) }
+  var league = leagues[0]
 
-  var matchesRes = await supabase.from('matches').select('*')
-    .eq('league_id', league.id).eq('scored', false).order('week').order('match_num')
-
-  var matches = matchesRes.data || []
+  var matches = await dbGet('/matches?league_id=eq.' + league.id + '&scored=eq.false&order=week.asc,match_num.asc&select=*')
   if (!matches.length) { log('No unscored matches'); return }
 
   var toScore = matches.filter(function(m) { return isMatchLikelyFinished(m.date) })

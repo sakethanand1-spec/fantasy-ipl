@@ -2,9 +2,5 @@
   "name": "fantasy-ipl-scripts",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
-  "dependencies": {
-    "@supabase/supabase-js": "^2.43.0",
-    "ws": "^8.18.0"
-  }
+  "type": "module"
 }
