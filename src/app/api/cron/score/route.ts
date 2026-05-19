@@ -29,11 +29,78 @@ function normaliseTeam(name: string): string {
   return n
 }
 
-async function getScorecard(homeTeam: string, awayTeam: string, dateStr: string): Promise<string> {
+function oversToFloat(o: any): number {
+  if (o == null) return 0
+  const [full, balls] = String(o).split('.')
+  return (parseInt(full) || 0) + (parseInt(balls) || 0) / 6
+}
+
+// Extract fielder name(s) from a CricAPI dismissal string
+function extractFielders(dismissal: string): string[] {
+  if (!dismissal) return []
+  const d = dismissal.toLowerCase()
+  if (d === 'not out' || d.includes('did not bat')) return []
+  // caught and bowled — bowler already gets wicket credit, no extra fielding
+  if (/c and b|caught and bowled/.test(d)) return []
+  // caught [fielder] b [bowler]
+  const caught = dismissal.match(/(?:^c |caught )\s*([A-Za-z][A-Za-z '.\\-]+?)(?:\s+b\s+|\s*$)/i)
+  if (caught) return [caught[1].trim()]
+  // stumped [keeper] b [bowler]
+  const stumped = dismissal.match(/(?:^st |stumped )\s*([A-Za-z][A-Za-z '.\\-]+?)(?:\s+b\s+|\s*$)/i)
+  if (stumped) return [stumped[1].trim()]
+  // run out (fielder) or run out (fielder1/fielder2) — credit first
+  const runOut = dismissal.match(/run out\s*\(([^/)]+)/i)
+  if (runOut) return [runOut[1].trim()]
+  return []
+}
+
+interface PlayerStats {
+  runs: number; balls: number; fours: number; sixes: number; isDuck: boolean
+  wickets: number; runsConceded: number; overs: number; maidens: number; dots: number
+  fieldingDismissals: number
+}
+
+function newStats(): PlayerStats {
+  return {
+    runs: 0, balls: 0, fours: 0, sixes: 0, isDuck: false,
+    wickets: 0, runsConceded: 0, overs: 0, maidens: 0, dots: 0,
+    fieldingDismissals: 0,
+  }
+}
+
+function calcPoints(s: PlayerStats, matchSR: number, matchER: number) {
+  // batting_base = runs + 1/four + 2/six + 2 per full 10 runs beyond 10
+  const milestone = s.runs >= 10 ? 2 * Math.floor((s.runs - 10) / 10) : 0
+  const batBase = s.runs + s.fours + 2 * s.sixes + milestone
+  const batSR = s.balls > 0 ? s.runs / s.balls : 0
+  const applyBatMult = s.runs >= 10 || s.balls >= 5
+  const batFinal = applyBatMult && matchSR > 0
+    ? Math.round(batBase * (batSR / matchSR))
+    : batBase
+
+  // bowling_base = wickets formula + 3/dot + 10/maiden (always >= 0)
+  const wicketBase = s.wickets > 0 ? s.wickets * 25 + (s.wickets - 1) * 5 : 0
+  const bowlBase = Math.max(0, wicketBase + 3 * s.dots + 10 * s.maidens)
+  const bowlER = s.overs > 0 ? s.runsConceded / s.overs : 0
+  const applyBowlMult = s.overs >= 1 && bowlER > 0
+  const bowlFinal = Math.max(0, applyBowlMult
+    ? Math.round(bowlBase * (matchER / bowlER))
+    : bowlBase)
+
+  const fieldPts = s.fieldingDismissals * 8
+  const duckPenalty = s.isDuck ? -2 : 0
+  const total = Math.max(0, batFinal + bowlFinal + fieldPts + duckPenalty)
+
+  return { batBase, batFinal, batSR, bowlBase, bowlFinal, bowlER, fieldPts, total }
+}
+
+async function fetchScorecard(homeTeam: string, awayTeam: string, dateStr: string): Promise<any> {
   const cricKey = process.env.CRICAPI_KEY
-  if (!cricKey) return ''
+  if (!cricKey) return null
   try {
-    const seriesRes = await fetch(`https://api.cricapi.com/v1/series_info?apikey=${cricKey}&id=${SERIES_ID}`)
+    const seriesRes = await fetch(
+      `https://api.cricapi.com/v1/series_info?apikey=${cricKey}&id=${SERIES_ID}`
+    )
     const seriesData = await seriesRes.json()
     const matchList: any[] = seriesData?.data?.matchList || []
     const expectedDate = new Date(dateStr + ' 2026')
@@ -50,78 +117,62 @@ async function getScorecard(homeTeam: string, awayTeam: string, dateStr: string)
       const diff = Math.abs(d.getTime() - expectedDate.getTime()) / (1000 * 60 * 60 * 24)
       if (diff < 2 && diff < bestDiff) { bestDiff = diff; bestId = m.id }
     }
-    if (!bestId) return ''
-
-    const scRes = await fetch(`https://api.cricapi.com/v1/match_scorecard?apikey=${cricKey}&id=${bestId}`)
+    if (!bestId) return null
+    const scRes = await fetch(
+      `https://api.cricapi.com/v1/match_scorecard?apikey=${cricKey}&id=${bestId}`
+    )
     const scData = await scRes.json()
-    const sc = scData?.data
-    if (!sc) return ''
-
-    const lines: string[] = [`Match: ${sc.name || ''}`]
-    if (Array.isArray(sc.score)) {
-      lines.push('Scores: ' + sc.score.map((s: any) => `${s.inning}: ${s.r}/${s.w} (${s.o} ov)`).join(', '))
-    }
-    for (const inn of (sc.scorecard || [])) {
-      lines.push(`=== ${inn.inning} ===\nBATTING:`)
-      for (const b of (inn.batting || [])) {
-        const name = b.batsman?.name || b.name || ''
-        if (!name || b.r === undefined) continue
-        lines.push(`${name}: ${b.r}(${b.b}) ${b['4s'] || 0}x4 ${b['6s'] || 0}x6 - ${b.dismissal || 'not out'}`)
-      }
-      lines.push('BOWLING:')
-      for (const bw of (inn.bowling || [])) {
-        const name = bw.bowler?.name || bw.name || ''
-        if (!name || bw.o === undefined) continue
-        let line = `${name}: ${bw.o}ov ${bw.r}r ${bw.w}wkt`
-        if (bw.m != null) line += ` ${bw.m}maiden`
-        if (bw.wd != null) line += ` ${bw.wd}wd`
-        if (bw.nb != null) line += ` ${bw.nb}nb`
-        if (bw['0s'] != null) line += ` ${bw['0s']}dots`
-        lines.push(line)
-      }
-    }
-    const text = lines.join('\n')
-    return text.length >= 300 ? text : ''
-  } catch {
-    return ''
-  }
+    return scData?.data ?? null
+  } catch { return null }
 }
 
-async function scoreWithClaude(scorecardText: string): Promise<any> {
-  const prompt = `Calculate fantasy points for this IPL 2026 match.\n\n${scorecardText}\n\n` +
-    `BATTING: +1/run, +1/four, +2/six, +2 per full 10 runs beyond 10 (10-19=+2, 20-29=+4 etc), -2 duck.\n` +
-    `SR BOOSTER: FinalBat = BaseBat * (BatterSR / MatchSR) if >=10r or >=5b. BatterSR=runs/balls (ratio e.g. 1.5), MatchSR=totalRuns/totalBalls (ratio e.g. 1.75).\n` +
-    `BOWLING BASE (always >=0): n wickets = (n*25)+(n-1)*5 so 1=25,2=55,3=85,4=115,5=145. +3/dot, +10/maiden, +1/single conceded. bowl.base must be >=0.\n` +
-    `ECO BOOSTER: FinalBowl = BaseBowl * (MatchER / BowlerER) if >=1 over. MatchER=totalRuns/totalOvers. bowl.final must be >=0.\n` +
-    `FIELDING: +8 catch, +8 stumping, +8 run-out.\n\n` +
-    `IMPORTANT: matchSR is a ratio (runs/balls) e.g. 1.75. matchER is runs per over e.g. 10.5.\n\n` +
-    `Return ONLY: {"result":"TEAM1 Score beat TEAM2 Score","matchSR":0.0,"matchER":0.0,"players":{"Player Name":{"total":0.0,"breakdown":{"bat":{"base":0.0,"final":0.0,"sr":0.0},"bowl":{"base":0.0,"final":0.0,"er":0.0},"field":{"pts":0}}}}}`
+function parseScorecard(sc: any) {
+  const players = new Map<string, PlayerStats>()
+  const get = (name: string) => {
+    if (!players.has(name)) players.set(name, newStats())
+    return players.get(name)!
+  }
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY!,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 8000,
-      system: 'You are a cricket fantasy scoring calculator. Respond with ONLY a valid JSON object.',
-      messages: [
-        { role: 'user', content: prompt },
-        { role: 'assistant', content: '{' },
-      ],
-    }),
-  })
-  const data = await res.json()
-  if (data.error) throw new Error(data.error.message)
-  const raw = '{' + (data.content || []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('')
-  const clean = raw.replace(/```(?:json)?/gi, '').trim()
-  try { return JSON.parse(clean) } catch {}
-  const s = clean.indexOf('{'), e = clean.lastIndexOf('}')
-  if (s !== -1 && e > s) return JSON.parse(clean.slice(s, e + 1))
-  throw new Error('Could not parse Claude response')
+  let totalBatRuns = 0, totalBatBalls = 0, totalBowlRuns = 0, totalBowlOvers = 0
+
+  for (const inn of (sc.scorecard || [])) {
+    for (const b of (inn.batting || [])) {
+      const name: string = (b.batsman?.name || b.name || '').trim()
+      if (!name || b.r === undefined) continue
+      const p = get(name)
+      p.runs = b.r ?? 0
+      p.balls = b.b ?? 0
+      p.fours = b['4s'] ?? 0
+      p.sixes = b['6s'] ?? 0
+      p.isDuck = p.runs === 0 && p.balls > 0
+        && !!b.dismissal && !b.dismissal.toLowerCase().includes('not out')
+      totalBatRuns += p.runs
+      totalBatBalls += p.balls
+      for (const fname of extractFielders(b.dismissal || '')) {
+        if (fname) get(fname).fieldingDismissals++
+      }
+    }
+    for (const bw of (inn.bowling || [])) {
+      const name: string = (bw.bowler?.name || bw.name || '').trim()
+      if (!name || bw.o === undefined) continue
+      const p = get(name)
+      p.wickets = bw.w ?? 0
+      p.runsConceded = bw.r ?? 0
+      p.overs = oversToFloat(bw.o)
+      p.maidens = bw.m ?? 0
+      p.dots = bw['0s'] ?? 0
+      totalBowlRuns += p.runsConceded
+      totalBowlOvers += p.overs
+    }
+  }
+
+  const matchSR = totalBatBalls > 0 ? totalBatRuns / totalBatBalls : 0
+  const matchER = totalBowlOvers > 0 ? totalBowlRuns / totalBowlOvers : 0
+  const result = (sc.score || [])
+    .map((s: any) => `${s.inning}: ${s.r}/${s.w} (${s.o}ov)`)
+    .join(' | ') || 'Scored'
+
+  return { players, matchSR, matchER, result }
 }
 
 export async function GET(req: NextRequest) {
@@ -147,48 +198,40 @@ export async function GET(req: NextRequest) {
   for (const match of toScore) {
     const label = `${match.home_team} vs ${match.away_team} (${match.date})`
     try {
-      let scorecardText = await getScorecard(match.home_team, match.away_team, match.date)
-      if (!scorecardText) {
-        scorecardText = `Match: ${match.home_team} vs ${match.away_team}, ${match.date} 2026, ${match.venue}. IPL 2026 match. Use your knowledge of this specific 2026 match only.`
-      }
+      const sc = await fetchScorecard(match.home_team, match.away_team, match.date)
+      if (!sc) { results.push(`${label}: No scorecard from CricAPI`); continue }
 
-      const parsed = await scoreWithClaude(scorecardText)
-      const playerNames = Object.keys(parsed?.players || {})
-      const { data: players } = await supabase.from('players').select('id, name').in('name', playerNames)
+      const { players, matchSR, matchER, result } = parseScorecard(sc)
+      const playerNames = Array.from(players.keys())
+      const { data: dbPlayers } = await supabase
+        .from('players').select('id, name').in('name', playerNames)
       const nameToId: Record<string, string> = {}
-      for (const p of (players || [])) nameToId[p.name] = p.id
+      for (const p of (dbPlayers || [])) nameToId[p.name] = p.id
 
       const rows = playerNames.filter(n => nameToId[n]).map(name => {
-        const pp = parsed.players[name]
-        const bowlFinal = pp.breakdown?.bowl?.final != null ? Math.max(0, pp.breakdown.bowl.final) : null
-        const bowlBase = pp.breakdown?.bowl?.base != null ? Math.max(0, pp.breakdown.bowl.base) : null
-        const batFinal = pp.breakdown?.bat?.final ?? 0
-        const fieldPts = pp.breakdown?.field?.pts ?? 0
+        const pts = calcPoints(players.get(name)!, matchSR, matchER)
         return {
           match_id: match.id,
           player_id: nameToId[name],
-          total: batFinal + (bowlFinal ?? 0) + fieldPts,
-          bat_base: pp.breakdown?.bat?.base ?? null,
-          bat_final: batFinal,
-          bat_sr: pp.breakdown?.bat?.sr ?? null,
-          bowl_base: bowlBase,
-          bowl_final: bowlFinal,
-          bowl_er: pp.breakdown?.bowl?.er ?? null,
-          field_pts: pp.breakdown?.field?.pts ?? null,
+          total: pts.total,
+          bat_base: pts.batBase,
+          bat_final: pts.batFinal,
+          bat_sr: pts.batSR,
+          bowl_base: pts.bowlBase,
+          bowl_final: pts.bowlFinal,
+          bowl_er: pts.bowlER,
+          field_pts: pts.fieldPts,
         }
       })
 
       if (rows.length) {
         await supabase.from('player_points').upsert(rows, { onConflict: 'match_id,player_id' })
         await supabase.from('matches').update({
-          scored: true,
-          result: parsed.result || 'Scored',
-          match_sr: parsed.matchSR,
-          match_er: parsed.matchER,
+          scored: true, result, match_sr: matchSR, match_er: matchER,
         }).eq('id', match.id)
       }
 
-      results.push(`${label}: ${rows.length} players scored`)
+      results.push(`${label}: ${rows.length} players scored (SR=${matchSR.toFixed(3)}, ER=${matchER.toFixed(2)})`)
     } catch (err: any) {
       results.push(`${label}: ERROR - ${err.message}`)
     }
