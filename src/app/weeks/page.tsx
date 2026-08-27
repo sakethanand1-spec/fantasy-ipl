@@ -68,7 +68,7 @@ export default function WeeksPage() {
     setScoring(match.id)
     setScoreMsg(prev => ({ ...prev, [match.id]: 'Fetching scorecard...' }))
     try {
-      const res = await fetch('/api/score', {
+      const res = await fetch('/api/score-match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ matchId: match.id }),
