@@ -14,6 +14,8 @@ export default function WeeksPage() {
   const [scoreMsg, setScoreMsg] = useState<Record<string, string>>({})
   const [expandedMatch, setExpandedMatch] = useState<string | null>(null)
   const [matchPlayers, setMatchPlayers] = useState<Record<string, any[]>>({})
+  const [rescoring, setRescoring] = useState(false)
+  const [rescoreResults, setRescoreResults] = useState<string[] | null>(null)
 
   useEffect(() => { loadWeek(selectedWeek) }, [selectedWeek])
 
@@ -93,6 +95,41 @@ export default function WeeksPage() {
     <div>
       <div className="page-title">Matchweeks</div>
       <div className="page-subtitle">SELECT WEEK · AUTO-SCORE WITH AI</div>
+
+      <div className="card p-4 mb-5 border-l-4 border-l-blue-600">
+        <div className="flex items-center gap-4">
+          <div className="flex-1">
+            <div className="font-condensed font-bold text-navy-950">Rescore Entire Season</div>
+            <div className="text-navy-400 text-xs mt-0.5">Re-calculates all match scores for all weeks using the deterministic formula</div>
+            {rescoreResults && (
+              <div className="mt-2 max-h-40 overflow-y-auto space-y-0.5">
+                {rescoreResults.map((r, i) => (
+                  <div key={i} className={`text-xs ${r.includes('ERROR') ? 'text-red-600' : r.includes('✓') ? 'text-green-700' : 'text-navy-400'}`}>{r}</div>
+                ))}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={async () => {
+              setRescoring(true)
+              setRescoreResults(null)
+              try {
+                const res = await fetch('/api/rescore-season')
+                const data = await res.json()
+                setRescoreResults(data.results || [data.error || 'Done'])
+                loadWeek(selectedWeek)
+              } catch (e: any) {
+                setRescoreResults([`Error: ${e.message}`])
+              }
+              setRescoring(false)
+            }}
+            disabled={rescoring}
+            className="btn btn-sm btn-primary whitespace-nowrap"
+          >
+            {rescoring ? 'Rescoring...' : 'Rescore All Weeks'}
+          </button>
+        </div>
+      </div>
 
       <div className="flex items-center gap-3 mb-5">
         <select className="select" value={selectedWeek} onChange={e => setSelectedWeek(+e.target.value)}>

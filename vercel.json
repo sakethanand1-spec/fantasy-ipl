@@ -6,14 +6,10 @@
     }
   ],
   "functions": {
-    "src/app/api/score/route.ts": {
-      "maxDuration": 120
-    },
-    "src/app/api/save-points/route.ts": {
-      "maxDuration": 30
-    },
-    "src/app/api/cron/score/route.ts": {
-      "maxDuration": 300
-    }
+    "src/app/api/score/route.ts": { "maxDuration": 120 },
+    "src/app/api/score-match/route.ts": { "maxDuration": 120 },
+    "src/app/api/save-points/route.ts": { "maxDuration": 30 },
+    "src/app/api/cron/score/route.ts": { "maxDuration": 300 },
+    "src/app/api/rescore-season/route.ts": { "maxDuration": 300 }
   }
 }
