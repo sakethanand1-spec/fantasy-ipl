@@ -5,7 +5,6 @@ export const maxDuration = 300
 
 const LEAGUE_SLUG = 'fantasy-ipl-2026'
 const SERIES_ID = '87c62aac-bc3c-4738-ab93-19da0690488f'
-const IPL_2026_START = new Date('2026-03-28')
 const IPL_TEAMS = new Set(['RCB','SRH','MI','KKR','CSK','RR','DC','GT','LSG','PBKS'])
 
 function normaliseTeam(name: string): string {
@@ -138,21 +137,30 @@ export async function GET(req: NextRequest) {
   const matchList: any[] = seriesData?.data?.matchList || []
 
   // Build index: pairKey → [{id, date}] sorted chronologically
+  // No date filter — include all matches so both home+away fixtures for a pair are indexed
   const cricByPair: Record<string, { id: string; date: number }[]> = {}
   for (const m of matchList) {
     const teams = teamsFromMatch(m)
     if (teams.length < 2) continue
     const d = new Date(m.dateTimeGMT || m.date || '').getTime()
-    if (isNaN(d) || d < IPL_2026_START.getTime()) continue
-    const key = [...teams].sort().join('|')
+    const safeDate = isNaN(d) ? 0 : d
+    // Use only first 2 teams to keep key consistent
+    const key = teams.slice(0, 2).sort().join('|')
     if (!cricByPair[key]) cricByPair[key] = []
     if (!cricByPair[key].some(x => x.id === m.id)) {
-      cricByPair[key].push({ id: m.id, date: d })
+      cricByPair[key].push({ id: m.id, date: safeDate })
     }
   }
   for (const key of Object.keys(cricByPair)) {
     cricByPair[key].sort((a, b) => a.date - b.date)
   }
+
+  // Flat matchList lookup used as date-based fallback
+  const allCricMatches = matchList.map((m: any) => ({
+    id: m.id as string,
+    date: (() => { const d = new Date(m.dateTimeGMT || m.date || '').getTime(); return isNaN(d) ? 0 : d })(),
+    teams: teamsFromMatch(m),
+  })).filter(m => m.teams.length >= 2)
 
   // Build DB index: pairKey → [match] in order already sorted by week/match_num
   const dbByPair: Record<string, any[]> = {}
@@ -175,14 +183,30 @@ export async function GET(req: NextRequest) {
   for (const match of (matches || [])) {
     const label = `W${match.week} ${match.home_team} vs ${match.away_team} (${match.date})`
     const key = pairKey(match.home_team, match.away_team)
+    const normHome = normaliseTeam(match.home_team)
+    const normAway = normaliseTeam(match.away_team)
     usageCount[key] = usageCount[key] ?? 0
     const cricList = cricByPair[key] || []
-    const cricMatch = cricList[usageCount[key]]
+    let cricMatch = cricList[usageCount[key]]
     usageCount[key]++
 
     if (!cricMatch) {
-      results.push(`${label}: no CricAPI match (pair ${key} has ${cricList.length} entries, needed #${usageCount[key]})`)
-      continue
+      // Fallback: find closest match by date for this team pair, excluding already-used IDs
+      const usedIds = new Set((cricList.slice(0, usageCount[key] - 1)).map(x => x.id))
+      const dbDate = new Date(match.date + ' 2026').getTime()
+      let bestFallback: string | null = null
+      let bestDiff = Infinity
+      for (const c of allCricMatches) {
+        if (!c.teams.includes(normHome) || !c.teams.includes(normAway)) continue
+        if (usedIds.has(c.id)) continue
+        const diff = Math.abs(c.date - dbDate)
+        if (diff < bestDiff) { bestDiff = diff; bestFallback = c.id }
+      }
+      if (!bestFallback) {
+        results.push(`${label}: no CricAPI match (pair ${key} exhausted, no fallback by date)`)
+        continue
+      }
+      cricMatch = { id: bestFallback, date: 0 }
     }
 
     try {
