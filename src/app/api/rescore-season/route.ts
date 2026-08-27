@@ -197,23 +197,32 @@ export async function GET(req: NextRequest) {
         if (diff < bestDiff) { bestDiff = diff; bestFallbackId = c.id }
       }
 
-      // Fallback 2: DB has wrong teams — find by date + partial team overlap
-      // Tracks globally used IDs across all matches to avoid double-assigning
+      // Fallback 2: DB has wrong teams — search by date proximity + team overlap
+      // Try progressively wider windows: 3 days (overlap≥1), 7 days (overlap≥1), 14 days (any)
       if (!bestFallbackId) {
-        let bestOverlap = -1
-        for (const c of allCricMatches) {
-          if (globalUsedIds.has(c.id)) continue
-          const diff = Math.abs(c.date - dbDate)
-          if (diff > 2 * 24 * 60 * 60 * 1000) continue // within 2 days
-          const overlap = (c.teams.includes(normHome) ? 1 : 0) + (c.teams.includes(normAway) ? 1 : 0)
-          if (overlap > bestOverlap || (overlap === bestOverlap && diff < bestDiff)) {
-            bestOverlap = overlap; bestDiff = diff; bestFallbackId = c.id
+        const windows = [
+          { days: 3, minOverlap: 1 },
+          { days: 7, minOverlap: 1 },
+          { days: 14, minOverlap: 0 },
+        ]
+        for (const { days, minOverlap } of windows) {
+          if (bestFallbackId) break
+          let bestOverlap = -1
+          bestDiff = Infinity
+          for (const c of allCricMatches) {
+            if (globalUsedIds.has(c.id)) continue
+            const diff = Math.abs(c.date - dbDate)
+            if (diff > days * 24 * 60 * 60 * 1000) continue
+            const overlap = (c.teams.includes(normHome) ? 1 : 0) + (c.teams.includes(normAway) ? 1 : 0)
+            if (overlap < minOverlap) continue
+            if (overlap > bestOverlap || (overlap === bestOverlap && diff < bestDiff)) {
+              bestOverlap = overlap; bestDiff = diff; bestFallbackId = c.id
+            }
           }
         }
         if (bestFallbackId) {
           const found = allCricMatches.find(c => c.id === bestFallbackId)
           results.push(`${label}: DB teams wrong → matched by date to ${found?.teams.join(' vs ')}`)
-          // Fix DB teams to match CricAPI
           if (found && found.teams.length >= 2) {
             await supabase.from('matches').update({
               home_team: found.teams[0], away_team: found.teams[1],
