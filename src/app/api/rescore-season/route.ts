@@ -136,18 +136,21 @@ export async function GET(req: NextRequest) {
       // Find CricAPI match ID from cached match list
       const expectedDate = new Date(match.date + ' 2026')
       let bestId: string | null = null, bestDiff = Infinity
+      const normHome = normaliseTeam(match.home_team)
+      const normAway = normaliseTeam(match.away_team)
       for (const m of matchList) {
-        const teams = [
+        const teams = new Set<string>([
           ...(m.teamInfo || []).map((t: any) => normaliseTeam(t.shortname || t.name || '')),
+          ...(m.teams || []).map((t: string) => normaliseTeam(t)),
           ...(m.name || '').split(' vs ').map((p: string) => normaliseTeam(p.split(',')[0].trim())),
-        ]
-        if (!teams.includes(normaliseTeam(match.home_team)) || !teams.includes(normaliseTeam(match.away_team))) continue
+        ])
+        if (!teams.has(normHome) || !teams.has(normAway)) continue
         const d = new Date(m.dateTimeGMT || m.date || '')
-        if (isNaN(d.getTime()) || d < IPL_2026_START || d > new Date('2026-06-01')) continue
+        if (isNaN(d.getTime()) || d < IPL_2026_START) continue
         const diff = Math.abs(d.getTime() - expectedDate.getTime()) / (1000 * 60 * 60 * 24)
-        if (diff < 2 && diff < bestDiff) { bestDiff = diff; bestId = m.id }
+        if (diff < 5 && diff < bestDiff) { bestDiff = diff; bestId = m.id }
       }
-      if (!bestId) { results.push(`${label}: no CricAPI match found`); continue }
+      if (!bestId) { results.push(`${label}: not in matchList (${matchList.length} total, searched ${normHome} vs ${normAway})`); continue }
 
       const scRes = await fetch(`https://api.cricapi.com/v1/match_scorecard?apikey=${cricKey}&id=${bestId}`)
       const scData = await scRes.json()

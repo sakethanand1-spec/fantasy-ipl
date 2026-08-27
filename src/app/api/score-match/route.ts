@@ -77,9 +77,9 @@ function calcPoints(s: PlayerStats, matchSR: number, matchER: number) {
   return { batBase, batFinal, batSR, bowlBase, bowlFinal, bowlER, fieldPts, total }
 }
 
-async function fetchScorecard(homeTeam: string, awayTeam: string, dateStr: string): Promise<any> {
+async function fetchScorecard(homeTeam: string, awayTeam: string, dateStr: string): Promise<{ data: any; debug: string }> {
   const cricKey = process.env.CRICAPI_KEY
-  if (!cricKey) return null
+  if (!cricKey) return { data: null, debug: 'CRICAPI_KEY not set' }
   try {
     const seriesRes = await fetch(
       `https://api.cricapi.com/v1/series_info?apikey=${cricKey}&id=${SERIES_ID}`
@@ -87,26 +87,36 @@ async function fetchScorecard(homeTeam: string, awayTeam: string, dateStr: strin
     const seriesData = await seriesRes.json()
     const matchList: any[] = seriesData?.data?.matchList || []
     const expectedDate = new Date(dateStr + ' 2026')
+    const normHome = normaliseTeam(homeTeam)
+    const normAway = normaliseTeam(awayTeam)
     let bestId: string | null = null
     let bestDiff = Infinity
     for (const m of matchList) {
-      const teams = [
+      const teams = new Set<string>([
         ...(m.teamInfo || []).map((t: any) => normaliseTeam(t.shortname || t.name || '')),
+        ...(m.teams || []).map((t: string) => normaliseTeam(t)),
         ...(m.name || '').split(' vs ').map((p: string) => normaliseTeam(p.split(',')[0].trim())),
-      ]
-      if (!teams.includes(normaliseTeam(homeTeam)) || !teams.includes(normaliseTeam(awayTeam))) continue
+      ])
+      if (!teams.has(normHome) || !teams.has(normAway)) continue
       const d = new Date(m.dateTimeGMT || m.date || '')
-      if (isNaN(d.getTime()) || d < IPL_2026_START || d > new Date('2026-06-01')) continue
+      if (isNaN(d.getTime()) || d < IPL_2026_START) continue
       const diff = Math.abs(d.getTime() - expectedDate.getTime()) / (1000 * 60 * 60 * 24)
-      if (diff < 2 && diff < bestDiff) { bestDiff = diff; bestId = m.id }
+      if (diff < 5 && diff < bestDiff) { bestDiff = diff; bestId = m.id }
     }
-    if (!bestId) return null
+    if (!bestId) {
+      return { data: null, debug: `Match not found in series (${matchList.length} matches listed, searched ${normHome} vs ${normAway} near ${dateStr})` }
+    }
     const scRes = await fetch(
       `https://api.cricapi.com/v1/match_scorecard?apikey=${cricKey}&id=${bestId}`
     )
     const scData = await scRes.json()
-    return scData?.data ?? null
-  } catch { return null }
+    if (!scData?.data) {
+      return { data: null, debug: `Scorecard empty for match ID ${bestId} (status: ${scData?.status})` }
+    }
+    return { data: scData.data, debug: `ok:${bestId}` }
+  } catch (e: any) {
+    return { data: null, debug: `Exception: ${e.message}` }
+  }
 }
 
 function parseScorecard(sc: any) {
@@ -170,8 +180,8 @@ export async function POST(req: NextRequest) {
   const { data: match } = await supabase.from('matches').select('*').eq('id', matchId).single()
   if (!match) return NextResponse.json({ error: 'Match not found' }, { status: 404 })
 
-  const sc = await fetchScorecard(match.home_team, match.away_team, match.date)
-  if (!sc) return NextResponse.json({ error: 'No scorecard available from CricAPI' }, { status: 422 })
+  const { data: sc, debug } = await fetchScorecard(match.home_team, match.away_team, match.date)
+  if (!sc) return NextResponse.json({ error: `No scorecard: ${debug}` }, { status: 422 })
 
   const { players, matchSR, matchER, result } = parseScorecard(sc)
   const playerNames = Array.from(players.keys())
