@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/score",
-      "schedule": "30 * * * *"
+      "schedule": "30 15 * * *"
     }
   ],
   "functions": {
