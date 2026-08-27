@@ -162,16 +162,10 @@ export async function GET(req: NextRequest) {
     teams: teamsFromMatch(m),
   })).filter(m => m.teams.length >= 2)
 
-  // Build DB index: pairKey → [match] in order already sorted by week/match_num
-  const dbByPair: Record<string, any[]> = {}
-  for (const match of (matches || [])) {
-    const key = pairKey(match.home_team, match.away_team)
-    if (!dbByPair[key]) dbByPair[key] = []
-    dbByPair[key].push(match)
-  }
-
   // Track how many times each pair has been consumed
   const usageCount: Record<string, number> = {}
+  // Track all CricAPI IDs assigned so far (prevents double-assigning in date fallback)
+  const globalUsedIds = new Set<string>()
 
   // Get all DB player names upfront
   const { data: allPlayers } = await supabase.from('players').select('id, name')
@@ -191,23 +185,50 @@ export async function GET(req: NextRequest) {
     usageCount[key]++
 
     if (!cricMatch) {
-      // Fallback: find closest match by date for this team pair, excluding already-used IDs
+      // Fallback 1: same team pair, any date, excluding already-used IDs
       const usedIds = new Set((cricList.slice(0, usageCount[key] - 1)).map(x => x.id))
       const dbDate = new Date(match.date + ' 2026').getTime()
-      let bestFallback: string | null = null
+      let bestFallbackId: string | null = null
       let bestDiff = Infinity
       for (const c of allCricMatches) {
         if (!c.teams.includes(normHome) || !c.teams.includes(normAway)) continue
         if (usedIds.has(c.id)) continue
         const diff = Math.abs(c.date - dbDate)
-        if (diff < bestDiff) { bestDiff = diff; bestFallback = c.id }
+        if (diff < bestDiff) { bestDiff = diff; bestFallbackId = c.id }
       }
-      if (!bestFallback) {
-        results.push(`${label}: no CricAPI match (pair ${key} exhausted, no fallback by date)`)
+
+      // Fallback 2: DB has wrong teams — find by date + partial team overlap
+      // Tracks globally used IDs across all matches to avoid double-assigning
+      if (!bestFallbackId) {
+        let bestOverlap = -1
+        for (const c of allCricMatches) {
+          if (globalUsedIds.has(c.id)) continue
+          const diff = Math.abs(c.date - dbDate)
+          if (diff > 2 * 24 * 60 * 60 * 1000) continue // within 2 days
+          const overlap = (c.teams.includes(normHome) ? 1 : 0) + (c.teams.includes(normAway) ? 1 : 0)
+          if (overlap > bestOverlap || (overlap === bestOverlap && diff < bestDiff)) {
+            bestOverlap = overlap; bestDiff = diff; bestFallbackId = c.id
+          }
+        }
+        if (bestFallbackId) {
+          const found = allCricMatches.find(c => c.id === bestFallbackId)
+          results.push(`${label}: DB teams wrong → matched by date to ${found?.teams.join(' vs ')}`)
+          // Fix DB teams to match CricAPI
+          if (found && found.teams.length >= 2) {
+            await supabase.from('matches').update({
+              home_team: found.teams[0], away_team: found.teams[1],
+            }).eq('id', match.id)
+          }
+        }
+      }
+
+      if (!bestFallbackId) {
+        results.push(`${label}: no CricAPI match found`)
         continue
       }
-      cricMatch = { id: bestFallback, date: 0 }
+      cricMatch = { id: bestFallbackId, date: 0 }
     }
+    globalUsedIds.add(cricMatch.id)
 
     try {
       const scRes = await fetch(`https://api.cricapi.com/v1/match_scorecard?apikey=${cricKey}&id=${cricMatch.id}`)
