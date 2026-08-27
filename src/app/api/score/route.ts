@@ -160,7 +160,7 @@ function parseScorecard(sc: any) {
 
 export async function POST(req: NextRequest) {
   const { matchId } = await req.json()
-  if (!matchId) return NextResponse.json({ error: 'matchId required' }, { status: 400 })
+  if (!matchId) return NextResponse.json({ error: 'matchId required [v2]' }, { status: 400 })
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
