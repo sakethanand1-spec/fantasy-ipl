@@ -33,7 +33,7 @@ function teamsFromMatch(m: any): string[] {
   for (const t of (m.teamInfo || [])) { add(t.shortname || ''); add(t.name || '') }
   for (const t of (m.teams || [])) add(t)
   for (const p of (m.name || '').split(' vs ')) add(p.split(',')[0].trim())
-  return [...seen]
+  return Array.from(seen)
 }
 
 function oversToFloat(o: any): number {
