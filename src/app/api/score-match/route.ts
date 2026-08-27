@@ -6,7 +6,7 @@ const IPL_2026_START = new Date('2026-03-28')
 
 function normaliseTeam(name: string): string {
   const n = (name || '').toUpperCase()
-  if (n.includes('ROYAL CHALLENGERS') || n === 'RCB') return 'RCB'
+  if (n.includes('ROYAL CHALLENGERS') || n === 'RCB' || n === 'RCBW') return 'RCB'
   if (n.includes('SUNRISERS') || n === 'SRH') return 'SRH'
   if (n.includes('MUMBAI') || n === 'MI') return 'MI'
   if (n.includes('KOLKATA') || n === 'KKR') return 'KKR'
@@ -100,8 +100,9 @@ async function fetchScorecard(homeTeam: string, awayTeam: string, dateStr: strin
       if (!teams.has(normHome) || !teams.has(normAway)) continue
       const d = new Date(m.dateTimeGMT || m.date || '')
       if (isNaN(d.getTime()) || d < IPL_2026_START) continue
+      // No date window limit — pick closest match for this team pair
       const diff = Math.abs(d.getTime() - expectedDate.getTime()) / (1000 * 60 * 60 * 24)
-      if (diff < 5 && diff < bestDiff) { bestDiff = diff; bestId = m.id }
+      if (diff < bestDiff) { bestDiff = diff; bestId = m.id }
     }
     if (!bestId) {
       return { data: null, debug: `Match not found in series (${matchList.length} matches listed, searched ${normHome} vs ${normAway} near ${dateStr})` }

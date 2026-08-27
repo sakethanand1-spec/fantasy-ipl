@@ -6,7 +6,7 @@ const IPL_2026_START = new Date('2026-03-28')
 
 function normaliseTeam(name: string): string {
   const n = (name || '').toUpperCase()
-  if (n.includes('ROYAL CHALLENGERS') || n === 'RCB') return 'RCB'
+  if (n.includes('ROYAL CHALLENGERS') || n === 'RCB' || n === 'RCBW') return 'RCB'
   if (n.includes('SUNRISERS') || n === 'SRH') return 'SRH'
   if (n.includes('MUMBAI') || n === 'MI') return 'MI'
   if (n.includes('KOLKATA') || n === 'KKR') return 'KKR'

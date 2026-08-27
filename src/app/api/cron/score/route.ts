@@ -16,7 +16,7 @@ function isFinished(dateStr: string): boolean {
 
 function normaliseTeam(name: string): string {
   const n = (name || '').toUpperCase()
-  if (n.includes('ROYAL CHALLENGERS') || n === 'RCB') return 'RCB'
+  if (n.includes('ROYAL CHALLENGERS') || n === 'RCB' || n === 'RCBW') return 'RCB'
   if (n.includes('SUNRISERS') || n === 'SRH') return 'SRH'
   if (n.includes('MUMBAI') || n === 'MI') return 'MI'
   if (n.includes('KOLKATA') || n === 'KKR') return 'KKR'

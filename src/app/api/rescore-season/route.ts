@@ -6,10 +6,11 @@ export const maxDuration = 300
 const LEAGUE_SLUG = 'fantasy-ipl-2026'
 const SERIES_ID = '87c62aac-bc3c-4738-ab93-19da0690488f'
 const IPL_2026_START = new Date('2026-03-28')
+const IPL_TEAMS = new Set(['RCB','SRH','MI','KKR','CSK','RR','DC','GT','LSG','PBKS'])
 
 function normaliseTeam(name: string): string {
   const n = (name || '').toUpperCase()
-  if (n.includes('ROYAL CHALLENGERS') || n === 'RCB') return 'RCB'
+  if (n.includes('ROYAL CHALLENGERS') || n === 'RCB' || n === 'RCBW') return 'RCB'
   if (n.includes('SUNRISERS') || n === 'SRH') return 'SRH'
   if (n.includes('MUMBAI') || n === 'MI') return 'MI'
   if (n.includes('KOLKATA') || n === 'KKR') return 'KKR'
@@ -20,6 +21,19 @@ function normaliseTeam(name: string): string {
   if (n.includes('LUCKNOW') || n === 'LSG') return 'LSG'
   if (n.includes('PUNJAB') || n === 'PBKS') return 'PBKS'
   return n
+}
+
+function pairKey(a: string, b: string): string {
+  return [normaliseTeam(a), normaliseTeam(b)].sort().join('|')
+}
+
+function teamsFromMatch(m: any): string[] {
+  const seen = new Set<string>()
+  const add = (t: string) => { const n = normaliseTeam(t); if (IPL_TEAMS.has(n)) seen.add(n) }
+  for (const t of (m.teamInfo || [])) { add(t.shortname || ''); add(t.name || '') }
+  for (const t of (m.teams || [])) add(t)
+  for (const p of (m.name || '').split(' vs ')) add(p.split(',')[0].trim())
+  return [...seen]
 }
 
 function oversToFloat(o: any): number {
@@ -123,6 +137,34 @@ export async function GET(req: NextRequest) {
   const seriesData = await seriesRes.json()
   const matchList: any[] = seriesData?.data?.matchList || []
 
+  // Build index: pairKey → [{id, date}] sorted chronologically
+  const cricByPair: Record<string, { id: string; date: number }[]> = {}
+  for (const m of matchList) {
+    const teams = teamsFromMatch(m)
+    if (teams.length < 2) continue
+    const d = new Date(m.dateTimeGMT || m.date || '').getTime()
+    if (isNaN(d) || d < IPL_2026_START.getTime()) continue
+    const key = [...teams].sort().join('|')
+    if (!cricByPair[key]) cricByPair[key] = []
+    if (!cricByPair[key].some(x => x.id === m.id)) {
+      cricByPair[key].push({ id: m.id, date: d })
+    }
+  }
+  for (const key of Object.keys(cricByPair)) {
+    cricByPair[key].sort((a, b) => a.date - b.date)
+  }
+
+  // Build DB index: pairKey → [match] in order already sorted by week/match_num
+  const dbByPair: Record<string, any[]> = {}
+  for (const match of (matches || [])) {
+    const key = pairKey(match.home_team, match.away_team)
+    if (!dbByPair[key]) dbByPair[key] = []
+    dbByPair[key].push(match)
+  }
+
+  // Track how many times each pair has been consumed
+  const usageCount: Record<string, number> = {}
+
   // Get all DB player names upfront
   const { data: allPlayers } = await supabase.from('players').select('id, name')
   const nameToId: Record<string, string> = {}
@@ -132,30 +174,22 @@ export async function GET(req: NextRequest) {
 
   for (const match of (matches || [])) {
     const label = `W${match.week} ${match.home_team} vs ${match.away_team} (${match.date})`
-    try {
-      // Find CricAPI match ID from cached match list
-      const expectedDate = new Date(match.date + ' 2026')
-      let bestId: string | null = null, bestDiff = Infinity
-      const normHome = normaliseTeam(match.home_team)
-      const normAway = normaliseTeam(match.away_team)
-      for (const m of matchList) {
-        const teams = new Set<string>([
-          ...(m.teamInfo || []).map((t: any) => normaliseTeam(t.shortname || t.name || '')),
-          ...(m.teams || []).map((t: string) => normaliseTeam(t)),
-          ...(m.name || '').split(' vs ').map((p: string) => normaliseTeam(p.split(',')[0].trim())),
-        ])
-        if (!teams.has(normHome) || !teams.has(normAway)) continue
-        const d = new Date(m.dateTimeGMT || m.date || '')
-        if (isNaN(d.getTime()) || d < IPL_2026_START) continue
-        const diff = Math.abs(d.getTime() - expectedDate.getTime()) / (1000 * 60 * 60 * 24)
-        if (diff < 5 && diff < bestDiff) { bestDiff = diff; bestId = m.id }
-      }
-      if (!bestId) { results.push(`${label}: not in matchList (${matchList.length} total, searched ${normHome} vs ${normAway})`); continue }
+    const key = pairKey(match.home_team, match.away_team)
+    usageCount[key] = usageCount[key] ?? 0
+    const cricList = cricByPair[key] || []
+    const cricMatch = cricList[usageCount[key]]
+    usageCount[key]++
 
-      const scRes = await fetch(`https://api.cricapi.com/v1/match_scorecard?apikey=${cricKey}&id=${bestId}`)
+    if (!cricMatch) {
+      results.push(`${label}: no CricAPI match (pair ${key} has ${cricList.length} entries, needed #${usageCount[key]})`)
+      continue
+    }
+
+    try {
+      const scRes = await fetch(`https://api.cricapi.com/v1/match_scorecard?apikey=${cricKey}&id=${cricMatch.id}`)
       const scData = await scRes.json()
       const sc = scData?.data
-      if (!sc) { results.push(`${label}: no scorecard data`); continue }
+      if (!sc) { results.push(`${label}: empty scorecard (cricapi id ${cricMatch.id})`); continue }
 
       const { players, matchSR, matchER, result } = parseScorecard(sc)
       const rows = Array.from(players.keys()).filter(n => nameToId[n]).map(name => {
